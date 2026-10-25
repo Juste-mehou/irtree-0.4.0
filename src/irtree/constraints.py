@@ -149,8 +149,8 @@ class Constraints:
         correlation block; dimensions outside every block stay independent.
         This is the theta analogue of b_corr / a_corr, and it is what makes
         it possible to estimate a correlation among a *subset* of latent
-        dimensions under LKJ / InverseWishart (the default theta.correlation
-        otherwise spans all D dimensions at once). Empty → the prior applies
+        dimensions under LKJ / InverseWishart (the theta.correlation prior,
+        LKJ(1) by default, otherwise spans all D dimensions at once). Empty → the prior applies
         to all D dimensions jointly.
         Blocks must be disjoint (each dimension in at most one block) and use
         valid 1-based dimension indices in 1..D. A singleton block is not a

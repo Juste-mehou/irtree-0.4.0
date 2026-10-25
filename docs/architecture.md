@@ -200,10 +200,17 @@ all of them:
 -   **Location.** θ has prior mean 0 on every dimension; shifting θ and b of
     a dimension together leaves the likelihood unchanged, so this pins the
     location.
--   **Scale.** On a dimension with free slopes, `Priors.from_spec` fixes
-    σ² = 1 (the usual 2PL convention), flagged as automatic in
-    `priors.summary()`. On Rasch-type dimensions (all a = 1) σ² is
-    estimated. A user `priors.set("theta", ...)` replaces the default.
+-   **Scale.** On a dimension whose nodes all have free slopes,
+    `Priors.from_spec` fixes σ² = 1 (the usual 2PL convention), flagged as
+    automatic in `priors.summary()`. A dimension with at least one
+    slope-free node (Rasch, GRM, PCM) already has its scale fixed by a = 1,
+    so σ² is estimated there; fixing it too would be a second, substantive
+    restriction. A user `priors.set("theta", ...)` replaces the default.
+-   **Correlations.** Correlations are scale-free (Corr(θ₁/c₁, θ₂/c₂) =
+    Corr(θ₁, θ₂)), so they stay identified under either scale convention.
+    They are estimated by default (LKJ(1) over all D dimensions); LKJ samples
+    R alone and keeps σ² = 1, whereas `InverseWishartPrior` samples the full
+    Σ and reopens the scale on all-slope dimensions (warned).
 -   **Sign.** An unbounded slope prior is rejected outright: it would leave
     the reflection (θ, a, b) → (−θ, −a, −b) unbroken.
 
@@ -409,9 +416,9 @@ nodes share a trait (`node_to_latent`).
 
 | Mode | Specification | Update |
 |----|----|----|
-| **Independent** (default) | `FixedCorrelation(rho=0.0)` | σ²_d separately; θ diagonal fast path |
-| **Fixed correlation** | `FixedCorrelation(rho=scalar or matrix)` | Variances estimated; correlation frozen |
-| **Estimated (DRD)** | `LKJPrior(eta)`; a bounded Normal on ρ for two dimensions only | MH on the correlation |
+| **Independent** | `FixedCorrelation(rho=0.0)` | σ²_d separately; θ diagonal fast path |
+| **Fixed correlation** | `FixedCorrelation(rho=scalar or matrix)` | Free variances estimated; correlation frozen |
+| **Estimated (DRD)** (default, `LKJPrior(eta=1)`) | `LKJPrior(eta)`; a bounded Normal on ρ for two dimensions only | MH on the correlation |
 | **Estimated (full Σ)** | `InverseWishartPrior(scale, df)` | Exact Gibbs for Σ |
 
 All are set with `priors.set("theta.correlation", ...)`.
@@ -934,14 +941,15 @@ InverseWishartPrior(scale=None, df=None); InverseWishartPrior.vague(G)
 
 | Parameter | Default | Update |
 |----|----|----|
-| θ | Normal(0, σ²), σ² ~ InvGamma(1, 1) on Rasch-type dimensions; σ² = 1 where slopes are free | Gibbs |
+| θ | Normal(0, σ²), σ² ~ InvGamma(1, 1) on dimensions with a slope-free node; σ² = 1 where every node has free slopes | Gibbs |
 | b | Normal(0, τ²_g), τ²_g ~ InvGamma(1, 1) per b-group | Gibbs |
 | a | TruncNormal(1, 0.5) on (0, ∞) | Gibbs |
 | c | Beta(5, 17) | Gibbs (probit), MH (logit) |
 | GRM thresholds (`b.poly`) | Normal(0, τ²_g), τ²_g estimated | Gibbs + Cowles step |
 | β, κ, γ | Normal(0, τ²_g), τ²_g ~ InvGamma(1, 1) per group | Gibbs (MH with a logit member) |
 | X/Q/W missing | Normal(0, 1) per feature | Gibbs (MH where a logit node uses it) |
-| correlations | `FixedCorrelation(rho=0.0)` (independent) | — |
+| θ correlation | `LKJPrior(eta=1)` over all D dimensions (D ≥ 2) | MH (Fisher-z, vine for D > 2) |
+| b, a correlations | `FixedCorrelation(rho=0.0)` (independent) | — |
 
 ### Validation at `set()` time
 

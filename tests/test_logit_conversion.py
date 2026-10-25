@@ -96,13 +96,24 @@ def test_grm_thresholds_follow_the_metric():
     assert fac["sigma2_1"] == pytest.approx(D ** 2)
 
 
-def test_shared_dimension_rasch_with_2pl_keeps_metric_and_notes_implied_slope():
+def test_shared_dimension_rasch_with_2pl_stretches_theta_keeps_slopes():
+    """The Rasch node fixes the scale (a = 1, sigma2 estimated), so theta
+    carries the factor and the 2PL slopes are unchanged."""
     spec = dataclasses.replace(irtree.disengagement_tree(binary=True), node_to_latent=(1, 1))
     nodes = [irtree.ProbitRaschNode(), irtree.ProbitTwoPLNode()]
     fac, notes = _factors(spec, nodes)
+    assert _by_prefix(fac, "theta_1&2_") == {D}
+    assert _by_prefix(fac, "b_1_") == {D}
+    assert _by_prefix(fac, "a_2_") == {1.0}
+    assert fac["sigma2_1&2"] == pytest.approx(D ** 2)
+    assert not any("common value" in n for n in notes)
+
+
+def test_probit_and_logit_rasch_on_one_dimension_keep_metric_and_note_slope():
+    spec = dataclasses.replace(irtree.disengagement_tree(binary=True), node_to_latent=(1, 1))
+    nodes = [irtree.ProbitRaschNode(), irtree.LogitRaschNode()]
+    fac, notes = _factors(spec, nodes)
     assert _by_prefix(fac, "theta_1&2_") == {1.0}
-    assert _by_prefix(fac, "b_1_") == {1.0}         # Rasch node, but metric kept
-    assert _by_prefix(fac, "a_2_") == {D}
     assert any("node 1" in n and "common value" in n for n in notes)
 
 

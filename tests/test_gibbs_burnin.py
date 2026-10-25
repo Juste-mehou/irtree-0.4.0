@@ -21,7 +21,10 @@ def _setup():
     Y = rng.integers(1, 4, size=(60, 6))
     d = expand_data(Y, spec, categories_start=1)
     nodes = [irtree.ProbitRaschNode(), irtree.ProbitRaschNode()]
-    return d, spec, nodes, irtree.build_default_priors(spec, nodes)
+    pr = irtree.build_default_priors(spec, nodes)
+    # Independent traits: the default LKJ correlation is an MH block.
+    pr.set("theta.correlation", irtree.FixedCorrelation(rho=0.0))
+    return d, spec, nodes, pr
 
 
 def _run(n_iter, **kw):

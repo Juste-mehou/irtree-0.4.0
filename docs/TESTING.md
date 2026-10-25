@@ -709,9 +709,9 @@ a naive implementation gets wrong. From the premises Φ(x) ≈ L(1.702·x) and
 the factor 1.702 is carried by whichever quantity is free to carry the latent
 scale. That depends on how the dimension is identified:
 
-| Parameter | Dimension whose nodes are all probit **without** slopes (Rasch, GRM without a; θ variance estimated) | Any other dimension (θ variance fixed at 1, slopes free) |
+| Parameter | Dimension with a probit node **without** slopes (Rasch, GRM; θ variance estimated) and no slope-free node of another link | Any other dimension (θ metric kept) |
 |---|---|---|
-| slope `a` | stays 1 | **× 1.702** at probit nodes, × 1 at logit nodes |
+| slope `a` | 1 at slope-free nodes; free slopes unchanged at probit nodes, × 1/1.702 at logit nodes | **× 1.702** at probit nodes, × 1 at logit nodes |
 | `θ`, σ, latent-regression `β` | **× 1.702** (σ² × 1.702²) | unchanged |
 | `b`, thresholds, `κ`, `γ` (everything inside `θ − b + offset`) | **× 1.702** | unchanged |
 | correlations `ρ`, guessing `c` | unchanged | unchanged |
