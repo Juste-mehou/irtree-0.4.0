@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# irtree — Bayesian IRTree estimation via hybrid Gibbs/MH MCMC
+# ---------------------------------------------------------------------------
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "irtree"
+version = "0.4.0"
+description = "Bayesian IRTree estimation via hybrid Gibbs/MH MCMC"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Juste M. Mehou", email = "mehoujuste@gmail.com" },
+    { name = "Brian C. Leventhal" },
+]
+keywords = ["IRTree", "item response theory", "psychometrics", "MCMC", "Bayesian", "disengagement"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+# Core runtime: the sampler needs only numpy + scipy. Everything else is optional.
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+# Tables (summary_df, diagnostics tables) and irtree.ingest.load_data (id-keyed
+# ingestion of data frames). Imported lazily / only by those entry points.
+tables = ["pandas>=1.5"]
+# Trace / posterior / ACF plots. Imported lazily inside plot_* methods.
+plots = ["matplotlib>=3.6"]
+# Formula expansion of covariates in load_data(formulas=...).
+formula = ["pandas>=1.5", "patsy>=0.5.3"]
+# Everything a user might want at the console.
+full = ["pandas>=1.5", "matplotlib>=3.6", "patsy>=0.5.3"]
+# Development: tests, notebooks, linting.
+dev = [
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "patsy>=0.5.3",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "nbmake>=1.4",          # execute the test notebooks headless in CI
+    "jupyter>=1.0",
+    "ruff>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/USER/irtree"          # <- update
+Repository = "https://github.com/USER/irtree"        # <- update
+"Bug Tracker" = "https://github.com/USER/irtree/issues"
+
+# ---------------------------------------------------------------------------
+# src/ layout: the importable package lives under src/irtree/, so tests import
+# the INSTALLED package (pip install -e .) rather than the adjacent folder.
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["src/irtree"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "fast: quick per-commit tests (Axis 1 + Axis 2 smoke)",
+    "slow: nightly recovery + external cross-check (Axis 2 coverage, Axis 3)",
+]
+
+# ---------------------------------------------------------------------------
+# ruff (lint only; formatting is by hand, columns aligned)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F = pyflakes+pycodestyle, I = isort, UP = pyupgrade, B = bugbear, NPY = numpy
+select = ["E", "F", "I", "UP", "B", "NPY"]
+ignore = [
+    "E741",   # ambiguous variable names (l, I, O) — unavoidable in IRT math (item i, etc.)
+    "E501",   # long lines allowed: the code keeps hand-aligned columns, no auto-formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]        # notebooks-as-scripts sometimes import after setup
+"__init__.py" = ["F401"]    # re-exports are intentionally "unused"

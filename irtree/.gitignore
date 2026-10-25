@@ -1,0 +1,41 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test, coverage and lint caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Windows shortcuts (e.g. the "Irtree" shortcut in the repo folder)
+*.lnk
+
+# Data and generated outputs (restricted data such as PISA must never be committed)
+data/
+*.sav
+*.dta
+*.parquet
+irtree_report*.html
