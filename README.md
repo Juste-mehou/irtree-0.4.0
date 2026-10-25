@@ -1,5 +1,7 @@
 # irtree
 
+[![CI](https://github.com/Juste-mehou/irtree-0.4.0/actions/workflows/ci.yml/badge.svg)](https://github.com/Juste-mehou/irtree-0.4.0/actions/workflows/ci.yml)
+
 **Bayesian IRTree estimation via hybrid Gibbs/MH MCMC.**
 
 An IRTree models an observed response category as the endpoint of a *sequence of
@@ -24,6 +26,8 @@ arbitrary trees, node models, covariates, parameter sharing, and missing data.
 ## Install
 
 ```bash
+git clone https://github.com/Juste-mehou/irtree-0.4.0.git
+cd irtree-0.4.0
 pip install -e .              # core: numpy + scipy only
 pip install -e ".[full]"      # + pandas tables, matplotlib plots, formula covariates
 pip install -e ".[dev]"       # + test/notebook/lint tooling

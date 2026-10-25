@@ -6,6 +6,12 @@ All notable changes to `irtree` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Repository layout: the package files sit at the repository root (they were
+  nested in an `irtree/` folder in the first commit, so GitHub did not find the
+  CI workflow). Project URLs in `pyproject.toml` and the README point to
+  `github.com/Juste-mehou/irtree-0.4.0`; the README shows the CI status badge.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added
