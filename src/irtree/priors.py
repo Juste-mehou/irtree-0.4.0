@@ -320,7 +320,8 @@ class LKJPrior(PriorSpec):
 class FixedCorrelation(PriorSpec):
     """Fixed correlation — rho is not estimated.
 
-    The default is FixedCorrelation(rho=0.0) → IndependentTraits.
+    FixedCorrelation(rho=0.0) gives independent traits (the default for
+    b.correlation and a.correlation; theta.correlation defaults to LKJ(1)).
 
     Parameters
     ----------
@@ -661,7 +662,12 @@ def _make_defaults() -> dict[str, PriorSpec]:
         "b":                 NormalPrior(mean=0.0, variance=InvGammaPrior()),
         "a":                 TruncNormalPrior(mean=1.0, variance=0.5, lower=0.0),
         "c":                 BetaPrior(alpha=5.0, beta=17.0),
-        "theta.correlation": FixedCorrelation(rho=0.0),
+        # Traits are correlated by default: the correlations are scale-free,
+        # so they stay identified when sigma2_d = 1 fixes the scale of a
+        # dimension with free slopes.  LKJ (not InverseWishart) keeps that
+        # constraint, since it samples R alone.  FixedCorrelation(rho=0.0)
+        # gives independent traits.
+        "theta.correlation": LKJPrior(eta=1.0),
         "b.correlation":     FixedCorrelation(rho=0.0),
         "a.correlation":     FixedCorrelation(rho=0.0),
         # Covariate coefficient priors — only active at nodes with the
@@ -798,17 +804,20 @@ class Priors:
                       "X_missing", "Q_missing", "W_missing"):
             priors.type_level[param] = defaults[param]
 
-        # Identification.  On a dimension where some node has free
+        # Identification.  On a dimension whose nodes all have free
         # discriminations, the likelihood depends on a_i theta_p only through
         # their product, so an estimated theta variance and the slopes trade
         # off along a_i -> c a_i, theta -> theta / c, identified only by the
         # a prior.  Fix the theta variance at 1 on those dimensions (the
-        # usual 2PL convention).  Set at node level, flagged automatic; a
+        # usual 2PL convention).  A node without slopes (Rasch, GRM, PCM)
+        # already fixes the scale through a = 1, so a dimension with one
+        # keeps its variance estimated: fixing it as well would add a second,
+        # substantive restriction.  Set at node level, flagged automatic; a
         # user priors.set("theta", ...) replaces it.
         dim_to_nodes = (spec.dim_to_nodes if getattr(spec, "dim_to_nodes", None) is not None
                         else [[r] for r in range(R)])
         for nodes_d in dim_to_nodes:
-            if any(getattr(node_models[r], "has_discrimination", False) for r in nodes_d):
+            if all(getattr(node_models[r], "has_discrimination", False) for r in nodes_d):
                 for r in nodes_d:
                     priors.node_level[("theta", r)] = NormalPrior(mean=0.0, variance=1.0)
                     priors._auto_node_level.add(("theta", r))

@@ -351,11 +351,12 @@ Every parameter has a default, so the section can be skipped. Resolution order:
 node level → type level → package default.
 
 **Package defaults:** θ ~ N(0, σ²) with σ² ~ InvGamma(1, 1) on dimensions whose
-nodes are all slope-free (Rasch, GRM, PCM), and σ² = 1 where any node has free
-slopes (identification); b ~ N(0, τ²) with τ² ~ InvGamma(1, 1) per b-group (also
+at least one node is slope-free (Rasch, GRM, PCM), and σ² = 1 where every node
+has free slopes (identification); b ~ N(0, τ²) with τ² ~ InvGamma(1, 1) per b-group (also
 the GRM thresholds); a ~ TruncNormal(1, 0.5) on (0, ∞); c ~ Beta(5, 17);
 β, κ, γ ~ N(0, τ²) with τ² ~ InvGamma(1, 1); missing covariate values ~ N(0, 1);
-all correlations fixed at 0.
+θ correlations estimated, LKJ(1) over all latent dimensions; b and a correlations
+fixed at 0.
 
 **Only priors the sampler honours are offered.** `priors.set()` rejects anything
 else, so a form answer can never run a different model than it says.
@@ -401,8 +402,8 @@ else, so a form answer can never run a different model than it says.
 
 - **Default:** the package default for that parameter
 - **Asked when:** that parameter was selected at Q3.1
-- **Warning shown:** changing the θ variance on a dimension with free slopes
-  removes the identification default (σ² = 1)
+- **Warning shown:** changing the θ variance on a dimension whose nodes all have
+  free slopes removes the identification default (σ² = 1)
 - **Maps to:** `priors.set(param, PriorSpec, node=None or r, force=...)`; keys
   `"b"`, `"b.binary"`, `"b.poly"`, `"a"`, `"c"`, `"theta"`, `"beta"`, `"kappa"`,
   `"gamma"`, `"X_missing"`, `"Q_missing"`, `"W_missing"`
@@ -414,9 +415,10 @@ else, so a form answer can never run a different model than it says.
   nodes with slopes). Correlated parameters stay separate; their covariance is
   estimated or fixed. Sharing (one common parameter) is Section 4.
 - **Type:** bool
-- **Default:** no (all correlations fixed at 0)
+- **Default:** θ correlated (LKJ(1) over all latent dimensions, when D ≥ 2); b and a not correlated
 - **Asked when:** ≥ 2 latent dimensions, or ≥ 2 binary nodes, or ≥ 2 nodes with slopes
-- **Maps to:** if no, `FixedCorrelation(rho=0)` everywhere
+- **Maps to:** if no, `FixedCorrelation(rho=0)` for b and a, and for θ only if the user
+  chooses independent traits (`priors.set("theta.correlation", FixedCorrelation(rho=0))`)
 
 ### Q3.3a: Which families are correlated?
 
@@ -454,7 +456,7 @@ else, so a form answer can never run a different model than it says.
   | `NormalPrior(mean, variance, lower=-1, upper=1)` | 2 only | MH (Fisher-z) |
   | `BetaPrior(alpha, beta, lower=-1, upper=1)` | 2 only | MH (Fisher-z) |
 
-- **Default:** `FixedCorrelation(rho=0)`
+- **Default:** θ `LKJPrior(eta=1)`; b and a `FixedCorrelation(rho=0)`
 - **Asked when:** that family was selected at Q3.3a
 - **Note:** one prior per family (it applies to all its blocks); for θ the
   two-member priors require D = 2

@@ -11,6 +11,25 @@ All notable changes to `irtree` are documented here. The format follows
   nested in an `irtree/` folder in the first commit, so GitHub did not find the
   CI workflow). Project URLs in `pyproject.toml` and the README point to
   `github.com/Juste-mehou/irtree-0.4.0`; the README shows the CI status badge.
+- **Trait correlations are estimated by default.** The default
+  `theta.correlation` prior is `LKJPrior(eta=1)` over all D latent dimensions
+  (was `FixedCorrelation(rho=0)`). Correlations are scale-free, so they stay
+  identified when σ² = 1 fixes the scale of a dimension; LKJ samples the
+  correlation matrix alone and keeps that constraint. Independent traits:
+  `priors.set("theta.correlation", FixedCorrelation(rho=0.0))`. Consequence:
+  a model with D ≥ 2 now has one Metropolis-Hastings block (the correlation)
+  by default, so it is no longer pure Gibbs unless traits are set independent.
+- **σ² = 1 only where every node on the dimension has free slopes.** A
+  slope-free node (Rasch, GRM, PCM) already fixes the scale through a = 1, so a
+  dimension that mixes it with a 2PL/3PL/GPCM node now keeps σ² estimated
+  (previously fixed at 1 as well, one restriction too many). The
+  InverseWishart warning and `to_logit()` follow the same rule: on such a
+  dimension θ carries the factor 1.702 and probit slopes are unchanged.
+
+### Fixed
+- Declaring `Constraints(theta_corr=...)` without setting a correlation prior
+  silently kept the block's correlations at 0 (no chain column, no warning).
+  With the new default the block is estimated.
 
 ## [0.4.0] - 2026-10-24
 

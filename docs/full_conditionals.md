@@ -139,7 +139,7 @@ $$\boxed{\sigma^{2} \mid \theta \sim \mathrm{InvGamma}\!\left(\alpha_{0} + \frac
 Two constraints fix the latent scale, and every derivation below assumes them.
 
 - **Location.** Every trait has prior mean 0. Shifting all $\theta_{pr}$ and all $b_{ir}$ of a dimension by the same constant leaves every likelihood term unchanged, so the zero mean of $\theta$ is what pins the location. (The θ prior mean is therefore not a free setting.)
-- **Scale.** On a dimension where some node has free discriminations, the likelihood depends on $a_{ir}\theta_{pr}$ only through the product, so $a \to c\,a$, $\theta \to \theta/c$ leaves it unchanged. `Priors.from_spec` fixes $\sigma^2_d = 1$ on those dimensions (the usual 2PL convention). On a dimension whose nodes all have $a = 1$ (Rasch, GRM), the scale is fixed by $a$ and $\sigma^2_d$ is estimated (§2.7). A user `priors.set("theta", ...)` replaces the default.
+- **Scale.** On a dimension whose nodes all have free discriminations, the likelihood depends on $a_{ir}\theta_{pr}$ only through the product, so $a \to c\,a$, $\theta \to \theta/c$ leaves it unchanged. `Priors.from_spec` fixes $\sigma^2_d = 1$ on those dimensions (the usual 2PL convention). On a dimension with at least one node with $a = 1$ (Rasch, GRM, PCM), the scale is fixed by that node and $\sigma^2_d$ is estimated (§2.7); fixing it as well would be a second, substantive restriction. The transformation rescales each dimension separately, and correlations are scale-free, so the correlations of $\theta$ are identified under either convention. A user `priors.set("theta", ...)` replaces the default.
 
 ### 1.5 One latent view for every augmented node
 
@@ -312,7 +312,7 @@ $$\boxed{\theta_{p} \mid Z, b, \Sigma \sim \mathcal{N}_{R}(\Sigma_{*}S_{p},\; \S
 
 The likelihood variance of $Z$ is 1. This is not a simplifying assumption — it is exact by definition of the probit model. $\varepsilon \sim \mathcal{N}(0, 1)$ is what makes $\Pr(Y^* = 1) = \Phi(\theta - b)$. A different variance would define a different (non-probit) link function. Consequently, $\Lambda_p = \mathrm{diag}(n_{p1}, \ldots, n_{pR})$ contains raw item counts, not counts divided by some free noise variance.
 
-The prior variance $\sigma^2_d$ (the diagonal elements of $\Sigma$) is estimated by `gibbs_sigma2` on Rasch-type dimensions and fixed at 1 on dimensions with free slopes (§1.4). The code constructs $\Sigma = DRD$ from the current $\sigma^2_d$ and the correlation matrix $R$, and passes that $\Sigma$ to this function, so $\Sigma_*$ uses the current values.
+The prior variance $\sigma^2_d$ (the diagonal elements of $\Sigma$) is estimated by `gibbs_sigma2` on dimensions with a slope-free node and fixed at 1 on dimensions whose nodes all have free slopes (§1.4). The code constructs $\Sigma = DRD$ from the current $\sigma^2_d$ and the correlation matrix $R$, and passes that $\Sigma$ to this function, so $\Sigma_*$ uses the current values.
 
 **Correlation blocks.** With `Constraints(theta_corr=[[...], ...])` the correlation matrix is block-diagonal: estimated within each declared block, zero across blocks, and dimensions in no block independent. Without it, all $D$ dimensions form one block. The θ draw above is unchanged (it takes whatever $\Sigma$ is current); only the correlation update (§3.3, §2.14) runs per block.
 
@@ -366,7 +366,7 @@ The per-group formula reduces to this when $g$ contains all items across all nod
 
 ### 2.9 $\Sigma$ — independent case as block-diagonal
 
-When traits are independent (the default `FixedCorrelation(rho=0)`), $\Sigma = \mathrm{diag}(\sigma^{2}_{1}, \ldots, \sigma^{2}_{D})$. There is no joint update. Each estimated $\sigma^{2}_{d}$ is updated independently via §2.7, and `gibbs_theta_correlated` takes its elementwise path.
+When traits are independent (`FixedCorrelation(rho=0)`; the default is `LKJPrior(eta=1)`), $\Sigma = \mathrm{diag}(\sigma^{2}_{1}, \ldots, \sigma^{2}_{D})$. There is no joint update. Each estimated $\sigma^{2}_{d}$ is updated independently via §2.7, and `gibbs_theta_correlated` takes its elementwise path.
 
 With an estimated correlation there are two priors. The default separation strategy $\Sigma = DRD$ keeps the variances (InvGamma, §2.7) and the correlation matrix (LKJ, MH, §3.3) factored. An `InverseWishartPrior` on `theta.correlation` instead draws each block's full covariance in one conjugate step (§2.14); its prior on variances and correlations is entangled, so it is opt-in.
 
@@ -972,7 +972,7 @@ Defaults are marked (default). "Gibbs" means an exact draw from the full conditi
 | $b_{ir}$, probit nodes | $\mathcal{N}(\mu_b, \tau^2)$ (default $\mu_b=0$) | Normal (weighted) | Gibbs | 2.2, 2.4 |
 | $b$ of a group with a logit/GPCM member; GPCM steps | same | none | MH per item | 3.4–3.5 |
 | $\tau_{i,k}$ (GRM thresholds) | $\mathcal{N}(\mu_0, \tau^2)$, ordered | prior truncated to $(L_k, U_k)$, after a Cowles step | Gibbs (+ MH move) | 2.10, 5.1 |
-| $\sigma^{2}_{d}$ | InvGamma(1, 1) on Rasch-type dimensions; fixed at 1 where slopes are free (default) | Inverse-Gamma | Gibbs | 1.4, 2.7 |
+| $\sigma^{2}_{d}$ | InvGamma(1, 1) on dimensions with a slope-free node; fixed at 1 where every node has free slopes (default) | Inverse-Gamma | Gibbs | 1.4, 2.7 |
 | $\sigma_{d}$ (opt-in) | HalfNormal$(0, s)$ on the SD | none | MH on $\log\sigma$ | 4 |
 | $\tau^{2}_{g}$ (per b-group), and β/κ/γ variances | InvGamma(1, 1) (default) | Inverse-Gamma | Gibbs | 2.8, 4a |
 | $a_{ir}$, probit 2PL/3PL | TruncNormal$(1, 0.5)$ on $(0,\infty)$ (default) | Truncated Normal | Gibbs | 3.1a |

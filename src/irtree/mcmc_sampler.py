@@ -2344,15 +2344,16 @@ def run_chain(
     is_estimated_corr = not isinstance(corr_spec, FixedCorrelation)
     using_invwishart_theta = isinstance(corr_spec, InverseWishartPrior)
     if using_invwishart_theta and any(
-            any(node_models[r_].has_discrimination for r_ in nodes_)
+            all(node_models[r_].has_discrimination for r_ in nodes_)
             for nodes_ in dim_to_nodes):
         warnings.warn(
             "InverseWishartPrior on theta.correlation estimates the theta "
             "variances, so on dimensions with free discriminations the scale "
             "of theta and the slopes trade off (a -> c a, theta -> theta / c) "
-            "and is identified only by the a prior.  Use LKJPrior (theta "
-            "variances then follow the theta prior, fixed at 1 by default on "
-            "those dimensions) or fix the slopes' scale another way.",
+            "and is identified only by the a prior.  Use LKJPrior (the "
+            "default; theta variances then follow the theta prior, fixed at "
+            "1 by default on those dimensions) or fix the slopes' scale "
+            "another way.",
             UserWarning, stacklevel=2)
 
     _th_blocks, _th_pairs, _th_tri = _theta_corr_blocks(constraints, D)

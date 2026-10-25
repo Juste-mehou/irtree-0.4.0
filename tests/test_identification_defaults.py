@@ -26,11 +26,31 @@ def test_default_fixes_theta_variance_only_where_slopes_are_free():
 
 def test_shared_dimension_gets_the_default_on_every_node():
     spec = irtree.ers_tree()                       # nodes 2 and 3 share theta_2
-    nodes = [irtree.ProbitRaschNode(), irtree.ProbitTwoPLNode(), irtree.ProbitRaschNode()]
+    nodes = [irtree.ProbitRaschNode(), irtree.ProbitTwoPLNode(), irtree.LogitTwoPLNode()]
     pr = irtree.build_default_priors(spec, nodes)
     assert pr.resolve("theta", 1).variance == 1.0
     assert pr.resolve("theta", 2).variance == 1.0
     assert isinstance(pr.resolve("theta", 0).variance, InvGammaPrior)
+
+
+def test_a_slope_free_node_keeps_the_variance_estimated():
+    """A Rasch node fixes the scale (a = 1); fixing sigma2 = 1 as well would
+    be a second, substantive restriction, so the variance stays estimated."""
+    spec = irtree.ers_tree()                       # nodes 2 and 3 share theta_2
+    nodes = [irtree.ProbitRaschNode(), irtree.ProbitTwoPLNode(), irtree.ProbitRaschNode()]
+    pr = irtree.build_default_priors(spec, nodes)
+    assert isinstance(pr.resolve("theta", 1).variance, InvGammaPrior)
+    assert isinstance(pr.resolve("theta", 2).variance, InvGammaPrior)
+    assert ("theta", 1) not in pr._auto_node_level
+
+
+def test_theta_correlation_is_estimated_by_default():
+    spec = irtree.disengagement_tree(binary=True)
+    nodes = [irtree.ProbitTwoPLNode(), irtree.ProbitTwoPLNode()]
+    pr = irtree.build_default_priors(spec, nodes)
+    assert isinstance(pr.resolve("theta.correlation", None), irtree.LKJPrior)
+    assert pr.resolve("theta.correlation", None).eta == 1.0
+    assert "rho_1_2" in pr.free_params()
 
 
 @pytest.mark.slow

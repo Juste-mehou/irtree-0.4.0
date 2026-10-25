@@ -921,13 +921,16 @@ def logit_scale_factors(param_names, data, spec, node_models, priors,
     the probit one.  With eta = a (theta - b + offset), the factor 1.702 is
     carried by whichever quantity is free to carry the latent scale:
 
-    * a latent dimension whose nodes are all probit **without** slopes
-      (Rasch, GRM without a): a stays 1, so the theta metric is stretched.
-      theta, b, thresholds, covariate effects (beta, kappa, gamma) are
-      multiplied by s = 1.702, variances by s**2.
-    * any other dimension (s = 1): the theta metric is kept, and every slope
-      at node r is multiplied by k_r / s, with k_r = 1.702 at probit nodes
-      and 1 at logit (and custom) nodes.
+    * a latent dimension with a probit node **without** slopes (Rasch, GRM)
+      and no slope-free node of another link: that node's a stays 1, so the
+      theta metric is stretched.  theta, b, thresholds, covariate effects
+      (beta, kappa, gamma) are multiplied by s = 1.702, variances by s**2.
+    * any other dimension (s = 1): the theta metric is kept.
+
+    On every dimension, each slope at node r is multiplied by k_r / s, with
+    k_r = 1.702 at probit nodes and 1 at logit (and custom) nodes, so the
+    slopes of a probit 2PL node sharing a dimension with a probit Rasch node
+    are unchanged.
 
     Correlations, guessing parameters and imputed covariate values are
     unchanged; covariance entries take the product of the two factors.
@@ -969,8 +972,10 @@ def logit_scale_factors(param_names, data, spec, node_models, priors,
 
     link = [getattr(nm, "link", "custom") for nm in node_models]
     k = [LOGIT_D if lk == "probit" else 1.0 for lk in link]
-    s = [LOGIT_D if all(link[r] == "probit" and r not in a_nodes for r in grp) else 1.0
-         for grp in dim_to_nodes]
+    def _stretch(grp):
+        free = [r for r in grp if r not in a_nodes]      # slope-free nodes
+        return bool(free) and all(link[r] == "probit" for r in free)
+    s = [LOGIT_D if _stretch(grp) else 1.0 for grp in dim_to_nodes]
     # A location pooled across dimensions (shared b, pooled kappa/gamma) needs
     # one metric on all of them; keep the fitted metric (s = 1) on every
     # dimension it links to a kept-metric dimension, until nothing changes.

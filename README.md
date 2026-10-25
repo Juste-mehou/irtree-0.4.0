@@ -76,7 +76,7 @@ nodes = [irtree.ProbitRaschNode(person_covariates=["female", "escs"]),  # covari
          irtree.ProbitTwoPLNode()]                                      # 2PL ability
 
 priors = irtree.build_default_priors(spec, nodes)
-priors.set("theta.correlation", irtree.LKJPrior(eta=2.0))   # estimate rho
+priors.set("theta.correlation", irtree.LKJPrior(eta=2.0))   # rho is estimated by default (LKJ(1)); firmer prior
 
 fit = irtree.irtree_fit(data, spec, nodes, priors=priors, n_iter=3000, n_chains=4, seed=42)
 ```
