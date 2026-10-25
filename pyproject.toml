@@ -58,9 +58,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/USER/irtree"          # <- update
-Repository = "https://github.com/USER/irtree"        # <- update
-"Bug Tracker" = "https://github.com/USER/irtree/issues"
+Homepage = "https://github.com/Juste-mehou/irtree-0.4.0"
+Repository = "https://github.com/Juste-mehou/irtree-0.4.0"
+"Bug Tracker" = "https://github.com/Juste-mehou/irtree-0.4.0/issues"
 
 # ---------------------------------------------------------------------------
 # src/ layout: the importable package lives under src/irtree/, so tests import
