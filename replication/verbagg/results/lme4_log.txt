@@ -1,2 +1,0 @@
-Model A: 3.250266 mins  logLik -6137.929 
-Model B: 31.85742 secs  logLik -6175.836 
