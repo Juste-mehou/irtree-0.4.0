@@ -551,6 +551,9 @@ def load_data(
     categories_start: int = 0,
     missing_codes: tuple = (99,),
     covariate_missing_codes: tuple = (99,),
+    # --- centering (see data_prep.center_covariates) ---
+    center: bool | dict = False,
+    scale: bool = False,
     verbose: bool = True,
 ):
     """Load a researcher's datasets into a validated, aligned ``PreparedData``.
@@ -595,6 +598,18 @@ def load_data(
     categories_start, missing_codes : forwarded to ``expand_data``.
     covariate_missing_codes : tuple
         Sentinel(s) treated as missing in X/Q/W (NaN is always missing).
+    center : bool or dict
+        Center the covariates after alignment (``center_covariates``), so that
+        they do not shift the traits or item locations whose means are fixed.
+        ``True`` centers every non-constant column of X, Q and W; a dict such
+        as ``{"X": True, "Q": ["load"], "W": False}`` chooses per grain (a list
+        names the columns).  Constant columns, such as an intercept, are left
+        unchanged.  Default False (covariates used as given).  For numpy arrays
+        passed straight to ``expand_data``, call ``center_covariates`` first.
+    scale : bool
+        With ``center``, also divide the centered columns by their standard
+        deviation (the default N(0, 1) distribution of a missing covariate
+        value assumes standardized covariates).
     verbose : bool
         Print a note when covariate rows with ids absent from the responses
         are dropped, and when response ids have no covariate row (their
@@ -673,8 +688,34 @@ def load_data(
             person_order, item_order, f_w, drop_intercept, verbose
         )
 
+    # ---- Optional centering ------------------------------------------------
+    from irtree.data_prep import center_covariates, expand_data
+
+    if center:
+        if center is True:
+            plan = {"X": True, "Q": True, "W": True}
+        elif isinstance(center, dict):
+            unknown = set(center) - {"X", "Q", "W"}
+            if unknown:
+                raise ValueError(f"center keys must be 'X', 'Q' or 'W'; got {sorted(unknown)}.")
+            plan = center
+        else:
+            raise TypeError("center must be True, False, or a dict keyed by 'X', 'Q', 'W'.")
+        grains = {"X": (X, X_names), "Q": (Q, Q_names), "W": (W, W_names)}
+        done = {}
+        for g, (M, nm_) in grains.items():
+            sel = plan.get(g, False)
+            if M is None or sel is False:
+                continue
+            if verbose:
+                print(f"  {g}:", end="")
+            res = center_covariates(M, columns=None if sel is True else sel, names=nm_,
+                                    missing_codes=covariate_missing_codes, scale=scale,
+                                    verbose=verbose)
+            done[g] = res.values
+        X, Q, W = done.get("X", X), done.get("Q", Q), done.get("W", W)
+
     # ---- Hand off to expand_data -------------------------------------------
-    from irtree.data_prep import expand_data
 
     person_ids = tuple(person_order)
     item_ids   = tuple(item_order)
