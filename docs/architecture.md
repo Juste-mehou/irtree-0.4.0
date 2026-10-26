@@ -688,6 +688,7 @@ PreparedData = NamedTuple(
 |----|----|
 | `expand_data(Y, spec, categories_start=0, missing_codes=(99,), X=None, Q=None, W=None, ..., X_names=None, Q_names=None, W_names=None, person_ids=None, item_ids=None)` | Returns `PreparedData`; validates Y and covariate shapes; detects missing responses and missing covariate entries |
 | `summarize_prepared(data, spec)` | Relevance rates per node, missingness, covariate dimensions |
+| `center_covariates(M, columns=None, names=None, missing_codes=(99,), scale=False)` | Centers (optionally standardizes) the columns of X [P, K], Q [I, K] or W [P, I, K] over their observed entries; constant columns (an intercept) and missing entries are left as they are; returns `CenteredCovariates(values, means, scales, centered)`. For arrays passed straight to `expand_data` |
 | `resolve_covariate_indices(node_models, data, spec, constraints)` | Turns each node's covariate selection into column indices and groups (one β per dimension, κ per b-group, γ per `gamma_shared` group); validates identical declarations across shared parameters (`_group_and_validate`) |
 
 **Missing responses.** `np.nan` or any code in `missing_codes`. The
@@ -703,16 +704,26 @@ features are drawn each iteration, conditional on the observed ones
 (`full_conditionals.md` §2.11.2). The working copies (`X_working` etc.) hold
 the current draws, and every cell enters the likelihood (full imputation).
 
+**Centering.** `expand_data` uses covariates as given. The trait mean and the
+item-location mean are fixed, so an uncentered covariate shifts every trait
+or location it explains and its coefficient trades off with them; centering
+removes that and leaves each coefficient's meaning unchanged.
+`center_covariates` does it for arrays, and `load_data(center=...)` for data
+frames. Neither is applied by default.
+
 ## 9.2a ingest.py — Loading Data Frames
 
 `load_data(responses, *, spec, person_id, item_id, response_col,
 responses_layout="auto", person_covariates=None, item_covariates=None,
-cell_covariates=None, roles=None, formulas=None, ...)` reads long or wide
+cell_covariates=None, roles=None, formulas=None, center=False, scale=False,
+...)` reads long or wide
 responses (data frames or CSV paths), aligns the covariate tables by person
 and item id, optionally expands covariate formulas with patsy
 (`formulas={"X": "C(gender) + escs"}`), and returns a `PreparedData` that
-carries the ids and covariate names. Requires pandas; patsy only for
-formulas.
+carries the ids and covariate names. `center=True` (or a dict per grain,
+`{"X": True, "Q": ["load"]}`) centers the aligned covariates with
+`center_covariates`, leaving constant columns unchanged; `scale=True` also
+standardizes them. Requires pandas; patsy only for formulas.
 
 ## 9.3 node_models.py — Node Probability Functions
 

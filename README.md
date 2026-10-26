@@ -71,6 +71,7 @@ settled. A run needs `n_iter >= 1600` in this mode; for a short diagnostic run u
 ```python
 # 2PL ability node, person covariates on disengagement, estimated correlation
 spec  = irtree.disengagement_tree(binary=True)
+X     = irtree.center_covariates(X, names=["female", "escs"]).values   # centered covariates
 data  = irtree.expand_data(Y, spec, categories_start=1, X=X, X_names=["female", "escs"])
 nodes = [irtree.ProbitRaschNode(person_covariates=["female", "escs"]),  # covariates on node 1
          irtree.ProbitTwoPLNode()]                                      # 2PL ability
