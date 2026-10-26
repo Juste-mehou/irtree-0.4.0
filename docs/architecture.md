@@ -688,7 +688,8 @@ PreparedData = NamedTuple(
 |----|----|
 | `expand_data(Y, spec, categories_start=0, missing_codes=(99,), X=None, Q=None, W=None, ..., X_names=None, Q_names=None, W_names=None, person_ids=None, item_ids=None)` | Returns `PreparedData`; validates Y and covariate shapes; detects missing responses and missing covariate entries |
 | `summarize_prepared(data, spec)` | Relevance rates per node, missingness, covariate dimensions |
-| `center_covariates(M, columns=None, names=None, missing_codes=(99,), scale=False)` | Centers (optionally standardizes) the columns of X [P, K], Q [I, K] or W [P, I, K] over their observed entries; constant columns (an intercept) and missing entries are left as they are; returns `CenteredCovariates(values, means, scales, centered)`. For arrays passed straight to `expand_data` |
+| `center_covariates(M, columns=None, names=None, missing_codes=(99,), scale=False)` | Centers (with `scale=True`, standardizes) the columns of X [P, K], Q [I, K] or W [P, I, K] over their observed entries; constant columns (an intercept) and missing entries are left as they are; returns `CenteredCovariates(values, means, scales, transformed)`. For arrays passed straight to `expand_data` |
+| `scale_covariates(M, columns=None, names=None, missing_codes=(99,))` | Divides the selected columns by their standard deviation without centering them (for covariates already centered); same rules and return type |
 | `resolve_covariate_indices(node_models, data, spec, constraints)` | Turns each node's covariate selection into column indices and groups (one β per dimension, κ per b-group, γ per `gamma_shared` group); validates identical declarations across shared parameters (`_group_and_validate`) |
 
 **Missing responses.** `np.nan` or any code in `missing_codes`. The
@@ -709,7 +710,9 @@ item-location mean are fixed, so an uncentered covariate shifts every trait
 or location it explains and its coefficient trades off with them; centering
 removes that and leaves each coefficient's meaning unchanged.
 `center_covariates` does it for arrays, and `load_data(center=...)` for data
-frames. Neither is applied by default.
+frames. Scaling is separate: `scale_covariates` and `load_data(scale=...)`
+divide by the standard deviation without centering. Neither is applied by
+default.
 
 ## 9.2a ingest.py — Loading Data Frames
 
@@ -720,10 +723,11 @@ cell_covariates=None, roles=None, formulas=None, center=False, scale=False,
 responses (data frames or CSV paths), aligns the covariate tables by person
 and item id, optionally expands covariate formulas with patsy
 (`formulas={"X": "C(gender) + escs"}`), and returns a `PreparedData` that
-carries the ids and covariate names. `center=True` (or a dict per grain,
-`{"X": True, "Q": ["load"]}`) centers the aligned covariates with
-`center_covariates`, leaving constant columns unchanged; `scale=True` also
-standardizes them. Requires pandas; patsy only for formulas.
+carries the ids and covariate names. `center` and `scale` are independent,
+each `True` (every non-constant column of X, Q and W) or a dict per grain
+(`{"X": True, "Q": ["load"]}`): `center` subtracts the mean, `scale` divides by
+the standard deviation, and both together standardize. Constant columns are
+never changed. Requires pandas; patsy only for formulas.
 
 ## 9.3 node_models.py — Node Probability Functions
 

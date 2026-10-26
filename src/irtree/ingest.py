@@ -551,9 +551,9 @@ def load_data(
     categories_start: int = 0,
     missing_codes: tuple = (99,),
     covariate_missing_codes: tuple = (99,),
-    # --- centering (see data_prep.center_covariates) ---
+    # --- centering / scaling (see data_prep.center_covariates, scale_covariates) ---
     center: bool | dict = False,
-    scale: bool = False,
+    scale: bool | dict = False,
     verbose: bool = True,
 ):
     """Load a researcher's datasets into a validated, aligned ``PreparedData``.
@@ -599,17 +599,20 @@ def load_data(
     covariate_missing_codes : tuple
         Sentinel(s) treated as missing in X/Q/W (NaN is always missing).
     center : bool or dict
-        Center the covariates after alignment (``center_covariates``), so that
-        they do not shift the traits or item locations whose means are fixed.
+        Subtract the mean of each covariate after alignment, so that it does
+        not shift the traits or item locations whose means are fixed.
         ``True`` centers every non-constant column of X, Q and W; a dict such
         as ``{"X": True, "Q": ["load"], "W": False}`` chooses per grain (a list
-        names the columns).  Constant columns, such as an intercept, are left
-        unchanged.  Default False (covariates used as given).  For numpy arrays
-        passed straight to ``expand_data``, call ``center_covariates`` first.
-    scale : bool
-        With ``center``, also divide the centered columns by their standard
-        deviation (the default N(0, 1) distribution of a missing covariate
-        value assumes standardized covariates).
+        names the columns).  Default False (covariates used as given).
+    scale : bool or dict
+        Divide each covariate by its standard deviation, with the same
+        ``True`` / dict forms as ``center``, independently of it: scaling
+        alone leaves the origin as given (for covariates already centered),
+        and ``center=True, scale=True`` standardizes.  The default N(0, 1)
+        distribution of a missing covariate value assumes standardized
+        covariates.  Constant columns, such as an intercept, are never
+        changed by either option.  For numpy arrays passed straight to
+        ``expand_data``, use ``center_covariates`` / ``scale_covariates``.
     verbose : bool
         Print a note when covariate rows with ids absent from the responses
         are dropped, and when response ids have no covariate row (their
@@ -688,32 +691,53 @@ def load_data(
             person_order, item_order, f_w, drop_intercept, verbose
         )
 
-    # ---- Optional centering ------------------------------------------------
-    from irtree.data_prep import center_covariates, expand_data
+    # ---- Optional centering and scaling (independent) ----------------------
+    from irtree.data_prep import _transform_covariates, expand_data
 
-    if center:
-        if center is True:
-            plan = {"X": True, "Q": True, "W": True}
-        elif isinstance(center, dict):
-            unknown = set(center) - {"X", "Q", "W"}
+    def _plan(opt, label):
+        if opt is False or opt is None:
+            return {}
+        if opt is True:
+            return {"X": True, "Q": True, "W": True}
+        if isinstance(opt, dict):
+            unknown = set(opt) - {"X", "Q", "W"}
             if unknown:
-                raise ValueError(f"center keys must be 'X', 'Q' or 'W'; got {sorted(unknown)}.")
-            plan = center
+                raise ValueError(f"{label} keys must be 'X', 'Q' or 'W'; got {sorted(unknown)}.")
+            return opt
+        raise TypeError(f"{label} must be True, False, or a dict keyed by 'X', 'Q', 'W'.")
+
+    c_plan, s_plan = _plan(center, "center"), _plan(scale, "scale")
+    grains = {"X": (X, X_names), "Q": (Q, Q_names), "W": (W, W_names)}
+    done = {}
+    for g, (M, nm_) in grains.items():
+        c_sel, s_sel = c_plan.get(g, False), s_plan.get(g, False)
+        if M is None or (c_sel is False and s_sel is False):
+            continue
+        # Columns: True = all non-constant; a list names the columns.  When
+        # centering and scaling select different columns, apply them in two
+        # passes (centering first) so that each touches only its own columns.
+        if verbose:
+            print(f"  {g}:", end="")
+        if c_sel is not False and s_sel is not False and c_sel == s_sel:
+            M = _transform_covariates(M, center=True, scale=True,
+                                      columns=None if c_sel is True else c_sel, names=nm_,
+                                      missing_codes=covariate_missing_codes, verbose=verbose,
+                                      caller="load_data").values
         else:
-            raise TypeError("center must be True, False, or a dict keyed by 'X', 'Q', 'W'.")
-        grains = {"X": (X, X_names), "Q": (Q, Q_names), "W": (W, W_names)}
-        done = {}
-        for g, (M, nm_) in grains.items():
-            sel = plan.get(g, False)
-            if M is None or sel is False:
-                continue
-            if verbose:
-                print(f"  {g}:", end="")
-            res = center_covariates(M, columns=None if sel is True else sel, names=nm_,
-                                    missing_codes=covariate_missing_codes, scale=scale,
-                                    verbose=verbose)
-            done[g] = res.values
-        X, Q, W = done.get("X", X), done.get("Q", Q), done.get("W", W)
+            if c_sel is not False:
+                M = _transform_covariates(M, center=True, scale=False,
+                                          columns=None if c_sel is True else c_sel, names=nm_,
+                                          missing_codes=covariate_missing_codes, verbose=verbose,
+                                          caller="load_data").values
+                if s_sel is not False and verbose:
+                    print(f"  {g}:", end="")
+            if s_sel is not False:
+                M = _transform_covariates(M, center=False, scale=True,
+                                          columns=None if s_sel is True else s_sel, names=nm_,
+                                          missing_codes=covariate_missing_codes, verbose=verbose,
+                                          caller="load_data").values
+        done[g] = M
+    X, Q, W = done.get("X", X), done.get("Q", Q), done.get("W", W)
 
     # ---- Hand off to expand_data -------------------------------------------
 

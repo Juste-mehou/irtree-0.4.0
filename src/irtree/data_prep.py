@@ -599,22 +599,106 @@ def expand_data(
 
 
 # ===========================================================================
-# Centering covariates
+# Centering and scaling covariates
 # ===========================================================================
 
 class CenteredCovariates(NamedTuple):
-    """Result of ``center_covariates``.
+    """Result of ``center_covariates`` / ``scale_covariates``.
 
-    values   : the centered (and optionally scaled) array, same shape as the
-               input, float; missing entries are NaN.
-    means    : per-column mean subtracted (0.0 for columns left unchanged).
-    scales   : per-column divisor (1.0 unless ``scale=True``).
-    centered : per-column flag, True where the column was transformed.
+    values      : the transformed array, same shape as the input, float;
+                  missing entries are NaN.
+    means       : per-column value subtracted (0.0 where not centered).
+    scales      : per-column divisor (1.0 where not scaled).
+    transformed : per-column flag, True where the column was changed.
     """
-    values:   np.ndarray
-    means:    np.ndarray
-    scales:   np.ndarray
-    centered: np.ndarray
+    values:      np.ndarray
+    means:       np.ndarray
+    scales:      np.ndarray
+    transformed: np.ndarray
+
+
+def _transform_covariates(M, *, center, scale, columns, names, missing_codes,
+                          verbose, caller):
+    """Shared engine: subtract the mean (center) and/or divide by the standard
+    deviation (scale) of the observed values of the selected columns."""
+    A = np.array(M, dtype=float, copy=True)
+    one_d = A.ndim == 1
+    if one_d:
+        A = A[:, None]
+    if A.ndim not in (2, 3):
+        raise ValueError(
+            f"{caller} expects a [P, K], [I, K] or [P, I, K] array; got shape {A.shape}.")
+    K = A.shape[-1]
+    if names is not None and len(names) != K:
+        raise ValueError(f"names has {len(names)} entries but the array has {K} columns.")
+    for code in missing_codes:
+        A[A == code] = np.nan
+
+    flat = A.reshape(-1, K)
+    n_obs = (~np.isnan(flat)).sum(axis=0)
+    with np.errstate(invalid="ignore"):
+        mu = np.where(n_obs > 0, np.nansum(flat, axis=0) / np.maximum(n_obs, 1), np.nan)
+        sd = np.sqrt(np.where(n_obs > 1, np.nansum((flat - mu) ** 2, axis=0)
+                              / np.maximum(n_obs - 1, 1), 0.0))
+    constant = (n_obs == 0) | (sd <= 1e-12 * np.maximum(1.0, np.abs(np.nan_to_num(mu))))
+
+    label = [names[j] if names is not None else str(j) for j in range(K)]
+    if columns is None:
+        chosen = ~constant
+    else:
+        chosen = np.zeros(K, dtype=bool)
+        for c in columns:
+            if isinstance(c, str):
+                if names is None or c not in names:
+                    raise ValueError(f"unknown covariate column {c!r}; names are {list(names or [])}.")
+                chosen[list(names).index(c)] = True
+            else:
+                chosen[int(c)] = True
+        skipped = chosen & constant
+        if skipped.any():
+            print(f"  {caller}: constant column(s) {[label[j] for j in np.flatnonzero(skipped)]} "
+                  f"left unchanged.")
+        chosen &= ~constant
+
+    means = np.where(chosen & center, mu, 0.0)
+    scales = np.where(chosen & scale, sd, 1.0)
+    flat[:, chosen] = (flat[:, chosen] - means[chosen]) / scales[chosen]
+    out = flat.reshape(A.shape)
+    if one_d:
+        out = out[:, 0]
+
+    if verbose:
+        verb = {(True, False): "Centered", (False, True): "Scaled",
+                (True, True): "Centered and scaled"}[(bool(center), bool(scale))]
+        done = [label[j] for j in range(K) if chosen[j]]
+        kept = [label[j] for j in range(K) if not chosen[j]]
+        print(f"  {verb}: {done if done else 'none'}" + (f"; unchanged: {kept}" if kept else ""))
+    return CenteredCovariates(out, means, scales, chosen)
+
+
+_SHARED_DOC = """
+    Parameters
+    ----------
+    M : array [P, K] (X), [I, K] (Q) or [P, I, K] (W)
+        The covariate matrix, laid out as ``expand_data`` expects.  A 1-D
+        array is treated as one column.
+    columns : sequence of int or str, optional
+        Columns to transform (indices, or names when ``names`` is given).
+        Default: every column that is not constant.
+    names : sequence of str, optional
+        Column names, for selecting by name and for the printed report.
+    missing_codes : tuple
+        Sentinel values treated as missing (NaN is always missing).  Missing
+        entries are excluded from the statistics and returned as NaN, so that
+        ``expand_data`` still draws them as parameters.
+    verbose : bool
+        Print which columns were changed and which were left unchanged.
+
+    Constant columns (for example a column of ones whose coefficient is a node
+    intercept) are never changed.  A W covariate uses all observed
+    person-item cells.  Returns ``CenteredCovariates(values, means, scales,
+    transformed)``.
+"""
 
 
 def center_covariates(
@@ -630,89 +714,40 @@ def center_covariates(
     The trait mean and the item-location mean are fixed (at 0 and at the prior
     mean), so an uncentered covariate shifts every trait or location of the
     node it enters and its effect trades off with them.  Centering removes
-    that: the coefficients keep their meaning (an effect per unit), and only
-    the intercept, which irtree does not estimate separately, changes.
+    that: each coefficient keeps its meaning (an effect per unit), and only the
+    intercept, which irtree does not estimate separately, changes.
 
-    Parameters
-    ----------
-    M : array [P, K] (X), [I, K] (Q) or [P, I, K] (W)
-        The covariate matrix, laid out as ``expand_data`` expects.  A 1-D
-        array is treated as one column.
-    columns : sequence of int or str, optional
-        Columns to center (indices, or names when ``names`` is given).
-        Default: every column that is not constant.
-    names : sequence of str, optional
-        Column names, for selecting by name and for the printed report.
-    missing_codes : tuple
-        Sentinel values treated as missing (NaN is always missing).  Missing
-        entries are excluded from the mean and returned as NaN, so that
-        ``expand_data`` draws them as parameters, centered at 0.
-    scale : bool
-        Also divide by the standard deviation of the observed values.  The
-        default distribution of a missing covariate value is N(0, 1), which
-        assumes standardized covariates; scaling changes a coefficient to an
-        effect per standard deviation.
-    verbose : bool
-        Print which columns were centered and which were left unchanged.
-
-    Notes
-    -----
-    Constant columns (for example a column of ones whose coefficient is a
-    node intercept) are never centered: centering would set them to 0.  A
-    W covariate is centered over all observed person-item cells.
+    ``scale=True`` also divides by the standard deviation (standardizing).  To
+    scale without centering, use ``scale_covariates``.
     """
-    A = np.array(M, dtype=float, copy=True)
-    one_d = A.ndim == 1
-    if one_d:
-        A = A[:, None]
-    if A.ndim not in (2, 3):
-        raise ValueError(
-            f"center_covariates expects a [P, K], [I, K] or [P, I, K] array; got shape {A.shape}.")
-    K = A.shape[-1]
-    if names is not None and len(names) != K:
-        raise ValueError(f"names has {len(names)} entries but the array has {K} columns.")
-    for code in missing_codes:
-        A[A == code] = np.nan
+    return _transform_covariates(M, center=True, scale=scale, columns=columns, names=names,
+                                 missing_codes=missing_codes, verbose=verbose,
+                                 caller="center_covariates")
 
-    flat = A.reshape(-1, K)
-    obs = ~np.isnan(flat)
-    n_obs = obs.sum(axis=0)
-    with np.errstate(invalid="ignore"):
-        mu = np.where(n_obs > 0, np.nansum(flat, axis=0) / np.maximum(n_obs, 1), np.nan)
-        sd = np.sqrt(np.where(n_obs > 1, np.nansum((flat - mu) ** 2, axis=0) / np.maximum(n_obs - 1, 1), 0.0))
-    constant = (n_obs == 0) | (sd <= 1e-12 * np.maximum(1.0, np.abs(np.nan_to_num(mu))))
 
-    if columns is None:
-        chosen = ~constant
-    else:
-        chosen = np.zeros(K, dtype=bool)
-        for c in columns:
-            if isinstance(c, str):
-                if names is None or c not in names:
-                    raise ValueError(f"unknown covariate column {c!r}; names are {list(names or [])}.")
-                chosen[list(names).index(c)] = True
-            else:
-                chosen[int(c)] = True
-        skipped = chosen & constant
-        if skipped.any():
-            label = [names[j] if names is not None else str(j) for j in np.flatnonzero(skipped)]
-            print(f"  center_covariates: constant column(s) {label} left unchanged.")
-        chosen &= ~constant
+def scale_covariates(
+    M,
+    columns: Sequence | None = None,
+    names: Sequence[str] | None = None,
+    missing_codes: tuple = (99,),
+    verbose: bool = True,
+) -> CenteredCovariates:
+    """Divide covariates by their standard deviation, without centering them.
 
-    means = np.where(chosen, mu, 0.0)
-    scales = np.where(chosen & scale, sd, 1.0)
-    flat[:, chosen] = (flat[:, chosen] - means[chosen]) / scales[chosen]
-    out = flat.reshape(A.shape)
-    if one_d:
-        out = out[:, 0]
+    For covariates that are already centered (or whose origin should be kept):
+    each coefficient becomes an effect per standard deviation.  The default
+    N(0, 1) distribution of a missing covariate value assumes standardized
+    covariates, so scaling matters for covariates with missing values.  The
+    standard deviation is computed around the observed mean; the values are
+    only divided by it.  ``load_data(scale=...)`` uses it.
+    """
+    return _transform_covariates(M, center=False, scale=True, columns=columns, names=names,
+                                 missing_codes=missing_codes, verbose=verbose,
+                                 caller="scale_covariates")
 
-    if verbose:
-        lab = [names[j] if names is not None else str(j) for j in range(K)]
-        done = [lab[j] for j in range(K) if chosen[j]]
-        kept = [lab[j] for j in range(K) if not chosen[j]]
-        verb = "Centered and scaled" if scale else "Centered"
-        print(f"  {verb}: {done if done else 'none'}" + (f"; unchanged: {kept}" if kept else ""))
-    return CenteredCovariates(out, means, scales, chosen)
+
+center_covariates.__doc__ += _SHARED_DOC
+scale_covariates.__doc__ += _SHARED_DOC
 
 
 def summarize_prepared(data: PreparedData, spec) -> str:

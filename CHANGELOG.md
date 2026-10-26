@@ -12,9 +12,12 @@ All notable changes to `irtree` are documented here. The format follows
   entries before `expand_data`; constant columns such as an intercept and
   missing entries are left unchanged. Returns the values with the means and
   scales used.
-- `load_data(center=..., scale=...)`: the same centering applied to the
-  aligned covariates (`True` for every grain, or a dict such as
-  `{"X": True, "Q": ["load"]}`). Off by default.
+- `scale_covariates(M, columns=None, names=None, missing_codes=(99,))`:
+  divides by the standard deviation without centering, for covariates that
+  are already centered.
+- `load_data(center=..., scale=...)`: centering and scaling of the aligned
+  covariates, independent of each other (each `True` for every grain, or a
+  dict such as `{"X": True, "Q": ["load"]}`). Off by default.
 
 ### Changed
 - Repository layout: the package files sit at the repository root (they were

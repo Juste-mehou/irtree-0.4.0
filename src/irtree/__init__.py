@@ -56,6 +56,7 @@ from irtree.data_prep import (
     PreparedData,
     center_covariates,
     expand_data,
+    scale_covariates,
     summarize_prepared,
 )
 
@@ -166,7 +167,7 @@ __all__ = [
     "IRTreeSpec", "disengagement_tree", "distractor_tree", "ers_tree",
     # data_prep
     "expand_data", "PreparedData", "summarize_prepared",
-    "center_covariates", "CenteredCovariates",
+    "center_covariates", "scale_covariates", "CenteredCovariates",
     # node_models
     "NodeModel", "ProbitRaschNode", "ProbitTwoPLNode",
     "ProbitThreePLNode", "LogitRaschNode", "LogitTwoPLNode", "LogitThreePLNode",
