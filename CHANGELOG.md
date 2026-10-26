@@ -6,6 +6,16 @@ All notable changes to `irtree` are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `center_covariates(M, columns=None, names=None, missing_codes=(99,), scale=False)`:
+  centers (optionally standardizes) X, Q or W arrays over their observed
+  entries before `expand_data`; constant columns such as an intercept and
+  missing entries are left unchanged. Returns the values with the means and
+  scales used.
+- `load_data(center=..., scale=...)`: the same centering applied to the
+  aligned covariates (`True` for every grain, or a dict such as
+  `{"X": True, "Q": ["load"]}`). Off by default.
+
 ### Changed
 - Repository layout: the package files sit at the repository root (they were
   nested in an `irtree/` folder in the first commit, so GitHub did not find the
