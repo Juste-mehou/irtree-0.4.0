@@ -73,6 +73,7 @@ Heidelberger, P. & Welch, P.D. (1983). Simulation run length control in the
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -752,6 +753,71 @@ def _is_notebook() -> bool:
 
 
 
+# ===========================================================================
+# Parameter names -> kind / node / index
+# ===========================================================================
+
+_NAME_RULES = [
+    # (regex, kind, node group, index group, sub group)
+    (re.compile(r"^theta_(?P<node>[^_]+)_(?P<index>\d+)$"), "theta"),
+    (re.compile(r"^b_(?P<node>[^_]+)_(?P<index>\d+)_thresh_(?P<sub>\d+)$"), "threshold"),
+    (re.compile(r"^b_(?P<node>[^_]+)_(?P<index>\d+)_tau(?P<sub>\d+)$"), "step"),
+    (re.compile(r"^(?P<kind>[bac])_(?P<node>[^_]+)_(?P<index>\d+)$"), None),
+    (re.compile(r"^sigma2_(?P<node>[^_]+)$"), "sigma2"),
+    (re.compile(r"^(?P<kind>(?:b|a|beta|kappa|gamma)\.variance)_(?P<node>[^_]+)$"), None),
+    (re.compile(r"^rho_(?P<node>\d+_\d+)$"), "rho"),
+    (re.compile(r"^(?P<kind>[ab]\.rho)_(?P<node>[^_]+_[^_]+)$"), None),
+    (re.compile(r"^Sigma_theta_(?P<node>\d+_\d+)$"), "Sigma_theta"),
+    (re.compile(r"^Sigma_(?P<k>[ab])_(?P<node>[^_]+)_(?P<index>\d+_\d+)$"), None),
+    (re.compile(r"^(?P<kind>[XQ])_missing_(?P<node>\d+)_(?P<index>\d+)$"), None),
+    (re.compile(r"^W_missing_(?P<node>\d+_\d+)_(?P<index>\d+)$"), "W_missing"),
+    (re.compile(r"^(?P<kind>beta|kappa|gamma)_(?P<node>[^_]+)_(?P<index>.+)$"), None),
+]
+
+
+def parse_param_name(name: str) -> dict:
+    """Split a chain column name into kind, node, index and sub.
+
+    kind  : parameter type (theta, b, a, c, threshold, step, sigma2, rho,
+            b.variance, beta, kappa, gamma, X_missing, ...).
+    node  : the node label, or for theta / sigma2 the dimension label (the
+            '&'-joined nodes that share it), for correlations the pair.
+    index : person or item number (int), or covariate name for coefficients.
+    sub   : threshold or step number; for missing covariate values the
+            feature number (index is then the person, item, or person_item).
+    Unknown names get kind 'other'.
+    """
+    for rx, kind in _NAME_RULES:
+        m = rx.match(name)
+        if not m:
+            continue
+        g = m.groupdict()
+        if kind is None:
+            kind = g.get("kind") or (f"Sigma_{g['k']}" if g.get("k") else "other")
+        if g.get("kind") in ("X", "Q"):
+            kind = f"{g['kind']}_missing"
+        if kind in ("X_missing", "Q_missing", "W_missing"):
+            # node -> the unit (person, item, or person_item); index -> feature
+            unit, feat = g.get("node"), g.get("index")
+            return {"kind": kind, "node": None,
+                    "index": int(unit) if unit.isdigit() else unit,
+                    "sub": int(feat)}
+        idx = g.get("index")
+        if idx is not None and idx.isdigit():
+            idx = int(idx)
+        sub = g.get("sub")
+        return {"kind": kind, "node": g.get("node"), "index": idx,
+                "sub": int(sub) if sub is not None else None}
+    return {"kind": "other", "node": None, "index": None, "sub": None}
+
+
+def param_info(names):
+    """DataFrame with columns kind, node, index, sub, indexed by parameter name."""
+    import pandas as pd
+    return pd.DataFrame([parse_param_name(n) for n in names], index=pd.Index(names, name="param"),
+                        dtype=object)
+
+
 @dataclass
 class DiagnosticReport:
     """Full diagnostic report for one or more MCMC chains.
@@ -771,11 +837,24 @@ class DiagnosticReport:
         Stored samples per chain (after thinning).
     param_names : list[str]
         Parameter names corresponding to rows in diagnostic_df.
-    posterior_df : DataFrame or None
-        Mean, SD, 2.5%, 50%, 97.5% for each parameter.
-    diagnostic_df : DataFrame or None
-        One row per parameter: R-hat, ESS bulk/tail, MCSE, MCSE/SD,
-        Geweke z, ACF lags, Status.
+    chain_accept_rates : list[dict[str, float]]
+        MH acceptance rate per block, one dict per chain.
+    chain_frozen_at : list[dict[str, int]]
+        Iteration at which each block's warm-up adaptation froze, per chain.
+
+    Tables (pandas DataFrames, built on access)
+    -------------------------------------------
+    overview  : one row: status, chains, iterations, draws, counts, burn-in.
+    params    : one row per parameter (traits included): kind, node, index,
+                sub, rhat, ess_bulk, ess_tail, mcse, mcse_sd, geweke_z,
+                geweke_p, geweke_status, geweke_burnin, hw_passed,
+                hw_n_discarded, acf_1, acf_5, acf_10, acf_50, status.
+    flagged   : the WARN / FAIL rows of ``params`` with a ``reason`` column.
+    by_kind   : one row per parameter kind: counts and worst values.
+    sampler   : one row per MH block and chain: acceptance rate, frozen_at.
+    ``tables()`` returns them in a dict, ``to_excel(path)`` writes one sheet
+    each, ``styled(name)`` returns a colour-coded Styler for display.
+    Posterior summaries are ``fit.summary_df()``; the draws ``fit.draws()``.
     flagged_params : list[str]
         Parameters with Status = WARN or FAIL.
     rhat_values : dict[str, float]
@@ -851,106 +930,215 @@ class DiagnosticReport:
     n_not_converged: int = 0
     recommended_burnin: float = 0.0
     geweke_alpha:    float = GEWEKE_ALPHA
-    posterior_df:    object           = field(default=None, repr=False)
-    diagnostic_df:   object           = field(default=None, repr=False)
+    chain_accept_rates: list = field(default_factory=list, repr=False)
+    chain_frozen_at:    list = field(default_factory=list, repr=False)
 
-    def to_dataframe(self):
-        """Return the diagnostic DataFrame (or pandas Styler in Jupyter)."""
-        if self.diagnostic_df is not None:
-            return self.diagnostic_df
-        # Build minimal DataFrame if pandas is available
+    # ------------------------------------------------------------------
+    # Tables
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _pd():
         try:
             import pandas as pd
         except ImportError as exc:
-            raise ImportError(
-                "pandas is required for DiagnosticReport.to_dataframe(). "
-                "Install with: pip install pandas"
-            ) from exc
+            raise ImportError("pandas is required for the diagnostic tables. "
+                              "Install with: pip install pandas") from exc
+        return pd
+
+    @property
+    def overview(self):
+        """One-row table: overall status, run size, status counts, burn-in."""
+        pd = self._pd()
+        return pd.DataFrame([{
+            "status": self.summary_status, "n_chains": self.n_chains,
+            "n_iter": self.n_iter, "n_draws_per_chain": self.n_samples,
+            "n_params": len(self.param_names), "n_pass": self.n_pass,
+            "n_warn": self.n_warn, "n_fail": self.n_fail,
+            "n_needs_burnin": self.n_needs_burnin,
+            "n_not_converged": self.n_not_converged,
+            "recommended_burnin": self.recommended_burnin,
+        }])
+
+    @property
+    def params(self):
+        """One row per parameter (traits included), indexed by name."""
+        pd = self._pd()
+        nan = float("nan")
+        names = self.param_names
+        cols = {
+            "rhat":           [self.rhat_values.get(n, nan) for n in names],
+            "ess_bulk":       [self.ess_bulk.get(n, nan) for n in names],
+            "ess_tail":       [self.ess_tail.get(n, nan) for n in names],
+            "mcse":           [self.mcse_values.get(n, nan) for n in names],
+            "mcse_sd":        [self.mcse_sd_values.get(n, nan) for n in names],
+            "geweke_z":       [self.geweke_z.get(n, nan) for n in names],
+            "geweke_p":       [self.geweke_p.get(n, nan) for n in names],
+            "geweke_status":  [self.geweke_status.get(n) for n in names],
+            "geweke_burnin":  [self.geweke_burnin.get(n) for n in names],
+            "hw_passed":      [self.hw_passed.get(n, True) for n in names],
+            "hw_n_discarded": [self.hw_n_discarded.get(n, 0) for n in names],
+        }
+        for lag in (1, 5, 10, 50):
+            cols[f"acf_{lag}"] = [self.acf_values.get(n, {}).get(lag, nan) for n in names]
+        cols["status"] = [self.status.get(n, "PASS") for n in names]
+        df = pd.DataFrame(cols, index=pd.Index(names, name="param"))
+        return param_info(names).join(df)
+
+    def _reasons(self, row) -> str:
+        out = []
+        r = row["rhat"]
+        if r == r and r > RHAT_FAIL:
+            out.append(f"R-hat {r:.3f} > {RHAT_FAIL}")
+        elif r == r and r > RHAT_WARN:
+            out.append(f"R-hat {r:.3f} > {RHAT_WARN}")
+        for col, label in (("ess_bulk", "bulk ESS"), ("ess_tail", "tail ESS")):
+            v = row[col]
+            if v == v and v < ESS_WARN:
+                out.append(f"{label} {v:.0f} < {ESS_WARN}")
+        v = row["mcse_sd"]
+        if v == v and v > MCSE_SD_WARN:
+            out.append(f"MCSE/SD {v:.3f} > {MCSE_SD_WARN}")
+        a50 = row["acf_50"]
+        if a50 == a50 and abs(a50) > ACF_LAG50_WARN:
+            out.append(f"|ACF(50)| {abs(a50):.2f} > {ACF_LAG50_WARN}")
+        gs = row["geweke_status"]
+        if gs == "converged_after_burnin":
+            out.append(f"Geweke: discard first {100 * (row['geweke_burnin'] or 0):.0f}%")
+        elif gs == "not_converged":
+            out.append("Geweke: not stationary")
+        if self.n_chains == 1 and not row["hw_passed"]:
+            out.append("Heidelberger-Welch failed")
+        return "; ".join(out)
+
+    @property
+    def flagged(self):
+        """WARN and FAIL rows of ``params``, worst first, with a reason."""
+        df = self.params
+        df = df[df["status"] != "PASS"].copy()
+        df.insert(0, "reason", [self._reasons(r) for _, r in df.iterrows()])
+        order = df["status"].map({"FAIL": 0, "WARN": 1})
+        return df.assign(_o=order).sort_values(["_o", "kind"]).drop(columns="_o")
+
+    @property
+    def by_kind(self):
+        """One row per parameter kind: counts and worst values."""
+        df = self.params
+        g = df.groupby("kind", sort=False)
+        out = g.agg(n=("status", "size"),
+                    n_pass=("status", lambda x: int((x == "PASS").sum())),
+                    n_warn=("status", lambda x: int((x == "WARN").sum())),
+                    n_fail=("status", lambda x: int((x == "FAIL").sum())),
+                    max_rhat=("rhat", "max"),
+                    min_ess_bulk=("ess_bulk", "min"),
+                    min_ess_tail=("ess_tail", "min"),
+                    max_mcse_sd=("mcse_sd", "max"))
+        return out
+
+    @property
+    def sampler(self):
+        """One row per Metropolis-Hastings block and chain."""
+        pd = self._pd()
         rows = []
-        for name in self.param_names:
-            row = {
-                "param":          name,
-                "rhat":           self.rhat_values.get(name, float('nan')),
-                "ess_bulk":       self.ess_bulk.get(name, float('nan')),
-                "ess_tail":       self.ess_tail.get(name, float('nan')),
-                "mcse":           self.mcse_values.get(name, float('nan')),
-                "mcse_sd":        self.mcse_sd_values.get(name, float('nan')),
-                "geweke_z":       self.geweke_z.get(name, float('nan')),
-                "geweke_p":       self.geweke_p.get(name, float('nan')),
-                "hw_passed":      self.hw_passed.get(name, True),
-                "hw_n_discarded": self.hw_n_discarded.get(name, 0),
-                "acf_lag1":       self.acf_values.get(name, {}).get(1, float('nan')),
-                "acf_lag5":       self.acf_values.get(name, {}).get(5, float('nan')),
-                "acf_lag10":      self.acf_values.get(name, {}).get(10, float('nan')),
-                "acf_lag50":      self.acf_values.get(name, {}).get(50, float('nan')),
-                "status":         self.status.get(name, "PASS"),
-            }
-            rows.append(row)
-        df = pd.DataFrame(rows).set_index("param")
-        self.diagnostic_df = df
+        for c, rates in enumerate(self.chain_accept_rates):
+            frozen = self.chain_frozen_at[c] if c < len(self.chain_frozen_at) else {}
+            for block, rate in rates.items():
+                rows.append({"chain": c + 1, "block": block, "accept_rate": rate,
+                             "frozen_at": frozen.get(block)})
+        return pd.DataFrame(rows, columns=["chain", "block", "accept_rate", "frozen_at"])
 
-        # Apply pandas Styler color-coding when in a Jupyter notebook context
-        if _is_notebook():
-            def _color_status(val):
-                colors = {"PASS": "background-color: #c8e6c9",  # green
-                          "WARN": "background-color: #fff9c4",  # yellow
-                          "FAIL": "background-color: #ffcdd2"}  # red
-                return colors.get(str(val), "")
+    def tables(self) -> dict:
+        """All tables in a dict: overview, by_kind, params, flagged, sampler."""
+        return {"overview": self.overview, "by_kind": self.by_kind,
+                "params": self.params, "flagged": self.flagged,
+                "sampler": self.sampler}
 
-            def _color_rhat(val):
-                try:
-                    v = float(val)
-                except (TypeError, ValueError):
-                    return ""
-                if v > RHAT_FAIL:
-                    return "background-color: #ffcdd2"
-                if v > RHAT_WARN:
-                    return "background-color: #fff9c4"
-                return "background-color: #c8e6c9"
+    def to_excel(self, path: str) -> None:
+        """Write every table to one sheet of an Excel file (needs openpyxl)."""
+        pd = self._pd()
+        with pd.ExcelWriter(path) as xw:
+            for name, df in self.tables().items():
+                df.to_excel(xw, sheet_name=name)
 
-            def _color_ess(val):
-                try:
-                    v = float(val)
-                except (TypeError, ValueError):
-                    return ""
-                if v < ESS_WARN:
-                    return "background-color: #fff9c4"
-                return ""
-
-            def _color_mcse_sd(val):
-                try:
-                    v = float(val)
-                except (TypeError, ValueError):
-                    return ""
-                if v > MCSE_SD_WARN:
-                    return "background-color: #fff9c4"
-                return ""
-
-            styler = (df.style
-                      .map(_color_status,  subset=["status"])
-                      .map(_color_rhat,    subset=["rhat"])
-                      .map(_color_ess,     subset=["ess_bulk", "ess_tail"])
-                      .map(_color_mcse_sd, subset=["mcse_sd"])
-                      .format({
-                          "rhat":     "{:.4f}",
-                          "ess_bulk": "{:.0f}",
-                          "ess_tail": "{:.0f}",
-                          "mcse":     "{:.4f}",
-                          "mcse_sd":  "{:.4f}",
-                          "geweke_z": "{:.3f}",
-                          "geweke_p": "{:.4f}",
-                          "acf_lag1": "{:.3f}",
-                          "acf_lag5": "{:.3f}",
-                          "acf_lag10":"{:.3f}",
-                          "acf_lag50":"{:.3f}",
-                      }, na_rep="N/A"))
-            return styler
-
-        return df
+    def to_dataframe(self):
+        """The ``params`` table (kept for compatibility)."""
+        return self.params
 
     def to_csv(self, path: str) -> None:
-        """Write the diagnostic DataFrame to a CSV file."""
-        self.to_dataframe().to_csv(path)
+        """Write the ``params`` table to a CSV file."""
+        self.params.to_csv(path)
+
+    def styled(self, name: str = "params"):
+        """A colour-coded pandas Styler of one table, for display only."""
+        df = self.tables()[name]
+
+        def _status(v):
+            return {"PASS": "background-color: #c8e6c9", "WARN": "background-color: #fff9c4",
+                    "FAIL": "background-color: #ffcdd2"}.get(str(v), "")
+
+        def _rhat(v):
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return ""
+            return ("background-color: #ffcdd2" if v > RHAT_FAIL else
+                    "background-color: #fff9c4" if v > RHAT_WARN else "")
+
+        def _low(th):
+            def f(v):
+                try:
+                    return "background-color: #fff9c4" if float(v) < th else ""
+                except (TypeError, ValueError):
+                    return ""
+            return f
+
+        def _high(th):
+            def f(v):
+                try:
+                    return "background-color: #fff9c4" if float(v) > th else ""
+                except (TypeError, ValueError):
+                    return ""
+            return f
+
+        st = df.style
+        for col, fn in (("status", _status), ("rhat", _rhat), ("max_rhat", _rhat),
+                        ("ess_bulk", _low(ESS_WARN)), ("ess_tail", _low(ESS_WARN)),
+                        ("min_ess_bulk", _low(ESS_WARN)), ("min_ess_tail", _low(ESS_WARN)),
+                        ("mcse_sd", _high(MCSE_SD_WARN)), ("max_mcse_sd", _high(MCSE_SD_WARN))):
+            if col in df.columns:
+                st = st.map(fn, subset=[col])
+        fmt = {c: "{:.3f}" for c in df.columns if df[c].dtype.kind == "f"}
+        for c in ("ess_bulk", "ess_tail", "min_ess_bulk", "min_ess_tail"):
+            if c in fmt:
+                fmt[c] = "{:.0f}"
+        return st.format(fmt, na_rep="")
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
+    def _headline(self) -> str:
+        return (f"DiagnosticReport: {self.summary_status} | {len(self.param_names)} parameters, "
+                f"{self.n_pass} PASS, {self.n_warn} WARN, {self.n_fail} FAIL | "
+                f"{self.n_chains} chain(s) x {self.n_samples} draws"
+                + (f" | recommended burn-in {100 * self.recommended_burnin:.0f}%"
+                   if self.recommended_burnin else ""))
+
+    _FOOTER = ("Tables: .overview  .by_kind  .params  .flagged  .sampler  "
+               "(.tables() for all, .to_excel(path), .styled(name))")
+
+    def __repr__(self) -> str:
+        try:
+            body = self.by_kind.round(3).to_string()
+        except ImportError:
+            body = ""
+        return "\n".join([self._headline(), "", body, "", self._FOOTER])
+
+    def _repr_html_(self) -> str:
+        try:
+            body = self.styled("by_kind").to_html()
+        except Exception:
+            body = ""
+        return (f"<p><b>{self._headline()}</b></p>{body}"
+                f"<p><code>{self._FOOTER}</code></p>")
 
 
 # ===========================================================================
@@ -1178,14 +1366,14 @@ def convergence_report(
     else:
         overall = "PASS"
 
-    # Aggregate accept rates across results
+    # Acceptance rates: per chain, and their mean over the chains that have
+    # the block (the earlier running pairwise average weighted later chains more).
+    chain_accept = [dict(getattr(r, "accept_rates", {}) or {}) for r in results]
+    chain_frozen = [dict(getattr(r, "frozen_at", {}) or {}) for r in results]
     accept_rates: dict[str, float] = {}
-    for r in results:
-        for k, v in r.accept_rates.items():
-            if k not in accept_rates:
-                accept_rates[k] = v
-            else:
-                accept_rates[k] = (accept_rates[k] + v) / 2.0
+    for k in dict.fromkeys(k for ca in chain_accept for k in ca):
+        vals = [ca[k] for ca in chain_accept if k in ca]
+        accept_rates[k] = float(np.mean(vals))
 
     return DiagnosticReport(
         summary_status=overall,
@@ -1204,6 +1392,8 @@ def convergence_report(
         acf_values=acf_d,
         status=status_d,
         accept_rates=accept_rates,
+        chain_accept_rates=chain_accept,
+        chain_frozen_at=chain_frozen,
         hw_passed=hw_passed_d,
         hw_n_discarded=hw_n_discarded_d,
         geweke_status=geweke_status_d,

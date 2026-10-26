@@ -1228,7 +1228,23 @@ chains (R-hat needs at least two):
 per-parameter R-hat, bulk and tail ESS, MCSE and MCSE/SD, Geweke z and p,
 Geweke status and recommended burn-in, Heidelberger-Welch pass and discard,
 ACF of the first chain, MH acceptance rates, status (PASS/WARN/FAIL)
-and counts, plus `posterior_df` / `diagnostic_df` tables.
+and counts. It displays a short summary (headline and the `by_kind` table)
+and exposes pandas tables built on access:
+
+| Table | Rows | Content |
+|---|---|---|
+| `overview` | 1 | status, chains, iterations, draws, status counts, recommended burn-in |
+| `by_kind` | one per parameter kind | counts per status, worst R-hat, smallest ESS, largest MCSE/SD |
+| `params` | one per parameter (traits included) | `kind`, `node`, `index`, `sub` (from `parse_param_name`), every diagnostic, status |
+| `flagged` | WARN and FAIL parameters, worst first | the `params` columns plus a plain-language `reason` |
+| `sampler` | one per MH block and chain | acceptance rate, iteration at which warm-up froze |
+
+`tables()` returns them in a dict, `to_excel(path)` writes one sheet each,
+`styled(name)` gives a colour-coded Styler. Posterior summaries are
+`fit.summary_df()`; the draws are `fit.draws()` (wide: one row per draw,
+one column per parameter; `long=True`: one row per draw and parameter with
+the `kind` / `node` / `index` columns; `params=` / `kind=` select columns)
+and `fit.draws_array()` (NumPy, chains × draws × parameters).
 
 **Layer 3 — `fit.report(path, plot_params="default")`**, a self-contained
 HTML file:

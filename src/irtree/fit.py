@@ -133,6 +133,13 @@ class IRTreeFit:
         For n_chains > 1, R-hat is the primary convergence metric.
         For n_chains = 1, Geweke and Heidelberger-Welch are primary.
 
+        The report displays a short summary; its pandas tables are
+        ``.overview``, ``.by_kind``, ``.params`` (one row per parameter, with
+        kind / node / index columns for filtering), ``.flagged`` (with a
+        plain-language reason), and ``.sampler`` (acceptance rate and
+        warm-up freeze per MH block and chain); ``.tables()`` returns them
+        all, ``.to_excel(path)`` saves them.  Draws: ``fit.draws()``.
+
         Returns
         -------
         DiagnosticReport
@@ -187,6 +194,81 @@ class IRTreeFit:
         """Return the posterior summary as a pandas DataFrame."""
         from irtree.posterior import summary_to_dataframe
         return summary_to_dataframe(self._get_summary())
+
+    def draws_array(self, params=None, kind=None):
+        """Posterior draws as a NumPy array [n_chains, n_draws, n_params].
+
+        Returns (array, names).  ``params`` (list of names) or ``kind`` (str or
+        list, e.g. ["a", "rho"]; see DiagnosticReport.params) select columns.
+        Chains are aligned on their last common number of draws.  The dtype is
+        the chains' storage dtype (float32 by default).
+        """
+        names = list(self.results[0].param_names)
+        cols = self._select_columns(names, params, kind)
+        S = min(r.chain.shape[0] for r in self.results)
+        arr = np.stack([r.chain[-S:][:, cols] for r in self.results])
+        return arr, [names[j] for j in cols]
+
+    def draws(self, params=None, kind=None, long: bool = False, log_lik: bool = False):
+        """Posterior draws as a pandas DataFrame.
+
+        Wide (default): one row per draw, columns ``chain``, ``draw``, then one
+        column per parameter (``log_lik`` appended when requested).  Long
+        (``long=True``): one row per draw and parameter, with columns chain,
+        draw, param, kind, node, index, sub, value.
+
+        ``params`` (list of names) or ``kind`` (str or list, e.g. "theta",
+        ["a", "rho"]) select columns before the table is built.  Values keep
+        the chains' storage dtype (float32 by default).  A long table of more
+        than 10 million rows requires a selection.
+        """
+        import pandas as pd
+
+        arr, names = self.draws_array(params=params, kind=kind)
+        C, S, K = arr.shape
+        chain = np.repeat(np.arange(1, C + 1), S)
+        draw = np.tile(np.arange(1, S + 1), C)
+        if not long:
+            df = pd.DataFrame(arr.reshape(C * S, K), columns=names)
+            df.insert(0, "draw", draw)
+            df.insert(0, "chain", chain)
+            if log_lik:
+                df["log_lik"] = np.concatenate([np.asarray(r.log_lik_trace)[-S:]
+                                                for r in self.results])
+            return df
+        n = C * S * K
+        if n > 10_000_000 and params is None and kind is None:
+            raise ValueError(
+                f"the long table would have {n:,} rows; select columns with "
+                f"params=[...] or kind=... (e.g. kind=['a', 'rho']).")
+        from irtree.diagnostics import param_info
+        info = param_info(names)
+        df = pd.DataFrame({
+            "chain": np.repeat(chain, K),
+            "draw":  np.repeat(draw, K),
+            "param": np.tile(np.asarray(names, dtype=object), C * S),
+            "value": arr.reshape(-1),
+        })
+        return df.join(info, on="param")[["chain", "draw", "param", "kind", "node",
+                                          "index", "sub", "value"]]
+
+    @staticmethod
+    def _select_columns(names, params, kind):
+        if params is None and kind is None:
+            return list(range(len(names)))
+        cols = []
+        if params is not None:
+            missing = [p for p in params if p not in names]
+            if missing:
+                raise KeyError(f"unknown parameter(s): {missing[:5]}")
+            cols += [names.index(p) for p in params]
+        if kind is not None:
+            from irtree.diagnostics import parse_param_name
+            kinds = {kind} if isinstance(kind, str) else set(kind)
+            cols += [j for j, n in enumerate(names) if parse_param_name(n)["kind"] in kinds]
+            if not cols:
+                raise KeyError(f"no parameter of kind {sorted(kinds)}")
+        return list(dict.fromkeys(cols))
 
     def to_logit(self):
         """Posterior summary on the logistic-equivalent scale (D = 1.702).

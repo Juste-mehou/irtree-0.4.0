@@ -18,6 +18,24 @@ All notable changes to `irtree` are documented here. The format follows
 - `load_data(center=..., scale=...)`: centering and scaling of the aligned
   covariates, independent of each other (each `True` for every grain, or a
   dict such as `{"X": True, "Q": ["load"]}`). Off by default.
+- Diagnostic tables: `fit.diagnostics()` displays a short summary and
+  exposes pandas tables `overview`, `by_kind`, `params` (with `kind`,
+  `node`, `index`, `sub` columns), `flagged` (with a plain-language reason)
+  and `sampler` (acceptance rate and warm-up freeze per MH block and chain),
+  plus `tables()`, `to_excel(path)` and `styled(name)`.
+  `irtree.diagnostics.parse_param_name` splits a chain column name.
+- `fit.draws(params=None, kind=None, long=False, log_lik=False)`: the
+  posterior draws as a DataFrame (wide or long); `fit.draws_array()` as a
+  NumPy array [chains, draws, parameters].
+
+### Changed
+- `DiagnosticReport.posterior_df` (never filled) and `diagnostic_df` are
+  removed; `to_dataframe()` returns the `params` table as a plain DataFrame
+  (it returned a Styler in notebooks); colours come from `styled()`.
+
+### Fixed
+- The report's `accept_rates` averaged chains pairwise in sequence, which
+  weighted later chains more with three or more chains; it is now the mean.
 
 ### Changed
 - Repository layout: the package files sit at the repository root (they were
