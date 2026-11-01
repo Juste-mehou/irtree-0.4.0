@@ -10,8 +10,9 @@
 # Needs a working Stan toolchain (rstan, or cmdstanr with CmdStan installed).
 # Output: results/capabilities_brms.csv, results/brms_speed.csv,
 #         results/brms_estimates.csv, results/capabilities_brms_sessionInfo.txt
-# Reference: on a laptop, Part 1 takes about 10 to 20 min (each model
-# compiles once, about 30 to 60 s); Part 2 about 20 to 60 min.
+# Reference: Part 1 took about 40 min in a 2-core cloud workspace (each short
+# test is mostly compilation, 2 to 5 min); Part 2 needs several GB of memory to
+# compile (the cloud workspace ran out); expect 20 to 60 min on a laptop.
 # =============================================================================
 
 ## ---- settings ----------------------------------------------------------------
@@ -98,8 +99,8 @@ check("graded response, one node (cumulative logit)",
 check("partial credit / adjacent category, one node",
       quick(bf(y3 ~ 1 + (1 | item) + (1 | id)), data = one, family = acat("logit")))
 check("mixed node (binary items and three-category items in one model)",
-      stop("not expressible with one family; would need a custom family or two linked models"),
-      note = "recorded as not available unless a custom family is written")
+      stop("not attempted: needs a custom family, or a multivariate model with one family per item type"),
+      note = "not tested; a custom family is possible in brms but is model code the user writes")
 long_na <- long; long_na$anger[long_na$id %in% c(3, 17, 40)] <- NA
 check("missing person covariate (mi() imputation)",
       quick(bf(value ~ 0 + node + node:mi(anger) + (0 + node | id) + (0 + node | item),
