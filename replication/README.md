@@ -1,24 +1,29 @@
 # Replication materials: Sections 6 and 7 of the JSS paper
 
-Each paper section has one notebook (or R script) that runs step by step and
-times its expensive steps. Every notebook ends by saving its runtime table to
-`results/runtime_<notebook>.csv`. All outputs go to a `results/` folder next to
-the notebook.
+The paper's evidence comes in three buckets of runs. Each Python notebook runs
+step by step and times its expensive steps; each R document is a Quarto file
+(`.qmd`) that reads like a notebook: open it in RStudio and run it chunk by chunk,
+or render it to HTML. All outputs go to a `results/` folder next to the file.
 
 ## Order
 
-| Step | File | Language | Paper | Needs |
-|---|---|---|---|---|
-| 1 | `verbagg/61_verbagg_workflow.ipynb` | Python | 6.1 Verbal aggression workflow | — |
-| 2 | `verbagg/72a_lme4_reference.R` | R (lme4) | 7.2 Agreement, part 1 | — |
-| 3 | `verbagg/72b_mirt_reference.R` | R (mirt) | 7.2 Agreement, part 2 | — |
-| 4 | `verbagg/72_agreement.ipynb` | Python | 7.2 Agreement | outputs of steps 2 and 3 |
-| 5 | `sbc/71_sbc.ipynb` | Python | 7.1 Simulation-based calibration | `sbc/sbc_models.py` |
+| Bucket | Step | File | Language | Paper | Needs |
+|---|---|---|---|---|---|
+| 1 Verbal aggression | 1 | `verbagg/61a_lme4_reference.qmd` | R (lme4) | 6.1, lme4 references for A1, B1, A2, B2 | — |
+| | 2 | `verbagg/61_verbagg_workflow.ipynb` | Python | 6.1, workflow, agreement, probit vs logit, speed | step 1 (and optionally step 4) |
+| | 3 | `capabilities/check_mirt.qmd` | R (mirt) | what mirt can and cannot fit | — |
+| | 4 | `capabilities/check_brms.qmd` | R (brms, Stan) | what brms can fit; timed runs read by step 2 | a Stan toolchain |
+| 2 PISA 2022 | 5 | `../notebooks/tests/50_external_crosscheck.ipynb`, Section 2 | Python | 6.2, against the published SAS estimates | the PISA extract |
+| 3 Simulation | 6 | `sbc/71_sbc.ipynb` | Python | 7, simulation-based calibration | `sbc/sbc_models.py` |
 
-Open each notebook from its own folder (Jupyter's working directory is then the
-notebook's folder). The first code cell installs the package from this
-repository in editable mode. Run the R scripts from `replication/verbagg`
-(`setwd(...)`, then run section by section in RStudio).
+`verbagg/72_agreement.ipynb`, `72a_lme4_reference.R` and `72b_mirt_reference.R`
+are the earlier agreement materials, superseded by bucket 1 and kept for
+reference.
+
+Open each Python notebook from its own folder (Jupyter's working directory is
+then the notebook's folder); the first code cell installs the package from this
+repository in editable mode. Quarto documents run in their own folder, so no
+`setwd()` is needed.
 
 ## Data
 
