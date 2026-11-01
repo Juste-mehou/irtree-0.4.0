@@ -34,6 +34,13 @@ All notable changes to `irtree` are documented here. The format follows
   (it returned a Styler in notebooks); colours come from `styled()`.
 
 ### Fixed
+- Multi-chain fits in evidence-mode warm-up (the default) whose chains froze
+  at different iterations kept different numbers of draws, and the
+  convergence report refused them ("All chains must have the same number of
+  stored samples"): the automatic console summary was skipped silently and
+  `fit.diagnostics()` raised. The report now aligns the chains on their last
+  common number of draws, like the posterior summary; a failing summary now
+  warns instead of passing silently.
 - The report's `accept_rates` averaged chains pairwise in sequence, which
   weighted later chains more with three or more chains; it is now the mean.
 
