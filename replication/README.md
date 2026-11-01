@@ -16,10 +16,6 @@ or render it to HTML. All outputs go to a `results/` folder next to the file.
 | 2 PISA 2022 | 5 | `../notebooks/tests/50_external_crosscheck.ipynb`, Section 2 | Python | 6.2, against the published SAS estimates | the PISA extract |
 | 3 Simulation | 6 | `sbc/71_sbc.ipynb` | Python | 7, simulation-based calibration | `sbc/sbc_models.py` |
 
-`verbagg/72_agreement.ipynb`, `72a_lme4_reference.R` and `72b_mirt_reference.R`
-are the earlier agreement materials, superseded by bucket 1 and kept for
-reference.
-
 Open each Python notebook from its own folder (Jupyter's working directory is
 then the notebook's folder); the first code cell installs the package from this
 repository in editable mode. Quarto documents run in their own folder, so no
@@ -42,9 +38,7 @@ parallel steps scale with the number of cores.
 |---|---|---|
 | 61 | Rasch tree fit / 2PL tree fit | 11 s / 13 s |
 | 61 | LOO for both models / HTML report | 4 s / 8 s |
-| 72a | lme4 Model A / Model B (one core) | 3.1 min / 0.6 min |
-| 72b | mirt M1 / M2 | not measured (run locally) |
-| 72 | irtree A / B / B under two other priors / M1 / M2 | 9 / 18 / 36 / 14 / 20 s |
+| 61a | lme4 A1 / B1 / A2 / B2 (one core) | run locally; written to `results/lme4_runtime_61.csv` |
 | 71 | one replication: S1 / S2 / S3 | 4.6 / 6.9 / 5.2 s |
 
 SBC at the notebook defaults (N_ITER = 8,000, 300 replications × 3 models) is
