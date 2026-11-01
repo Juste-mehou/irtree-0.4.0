@@ -1,0 +1,147 @@
+# =============================================================================
+# What can mirt do for IRTree models?  A capability check on the verbal
+# aggression linear tree.
+# =============================================================================
+# Each test tries one feature and records "ok", "error: <message>" or a note.
+# Nothing here is a model comparison: the point is whether the feature exists
+# and with what syntax.  Run from replication/capabilities:
+#   setwd("<repository root>/replication/capabilities"); source("check_mirt.R")
+# Output: results/capabilities_mirt.csv (test, status, seconds, note) and
+#         results/capabilities_mirt_sessionInfo.txt
+#
+# The tree enters mirt as wide pseudo-items (Jeon & De Boeck, 2016): node 1
+# (no vs perhaps/yes) for every item, node 2 (perhaps vs yes) with NA where
+# node 2 is not reached; one dimension per node.
+# =============================================================================
+
+if (!requireNamespace("mirt", quietly = TRUE)) install.packages("mirt")
+suppressPackageStartupMessages(library(mirt))
+dir.create("results", showWarnings = FALSE)
+
+## ---- data ------------------------------------------------------------------
+va <- read.csv("../verbagg/verbagg_long.csv", stringsAsFactors = TRUE)
+va$y <- match(va$resp, c("no", "perhaps", "yes")) - 1L
+items <- unique(as.character(va$item))
+persons <- sort(unique(va$id))
+Y <- matrix(NA_integer_, length(persons), length(items), dimnames = list(persons, items))
+Y[cbind(match(va$id, persons), match(va$item, items))] <- va$y
+N1 <- (Y >= 1) * 1L
+N2 <- ifelse(Y >= 1, (Y == 2) * 1L, NA_integer_)
+colnames(N1) <- paste0(items, "_n1"); colnames(N2) <- paste0(items, "_n2")
+pseudo <- as.data.frame(cbind(N1, N2))
+pers <- unique(va[, c("id", "Anger", "Gender")])
+pers <- pers[match(persons, pers$id), ]
+covdata <- data.frame(anger = as.numeric(scale(pers$Anger)),
+                      male = as.numeric(pers$Gender == "M") - mean(pers$Gender == "M"))
+it <- unique(va[, c("item", "btype", "situ", "mode")])
+it <- it[match(items, it$item), ]
+idesign1 <- data.frame(scold = as.numeric(it$btype == "scold"), shout = as.numeric(it$btype == "shout"),
+                       self = as.numeric(it$situ == "self"), do = as.numeric(it$mode == "do"))
+tree_model <- mirt.model("F1 = 1-24
+                          F2 = 25-48
+                          COV = F1*F2")
+
+## ---- harness ---------------------------------------------------------------
+results <- data.frame(test = character(), status = character(), seconds = numeric(),
+                      note = character(), stringsAsFactors = FALSE)
+check <- function(test, expr, note = "") {
+  t0 <- proc.time()[["elapsed"]]
+  status <- tryCatch({ force(expr); "ok" },
+                     error = function(e) paste("error:", conditionMessage(e)),
+                     warning = function(w) paste("warning:", conditionMessage(w)))
+  dt <- proc.time()[["elapsed"]] - t0
+  results[nrow(results) + 1, ] <<- list(test, substr(status, 1, 300), round(dt, 1), note)
+  cat(sprintf("[%-45s] %6.1f s  %s\n", test, dt, substr(status, 1, 120)))
+  invisible(status)
+}
+
+## ---- 1. links and node models ----------------------------------------------
+check("2PL tree, logit, correlated traits",
+      mirt(pseudo, tree_model, itemtype = "2PL", verbose = FALSE))
+check("Rasch tree (slopes fixed at 1), traits correlated, variances free",
+      mirt(pseudo, tree_model, itemtype = "Rasch", verbose = FALSE))
+check("probit item type ('probit')",
+      mirt(pseudo, tree_model, itemtype = "probit", verbose = FALSE),
+      note = "an error listing the valid item types answers the question")
+check("probit item type ('2PNO' / normal ogive)",
+      mirt(pseudo, tree_model, itemtype = "2PNO", verbose = FALSE))
+check("3PL at node 2 (prior on the lower asymptote)",
+      mirt(pseudo, mirt.model("F1 = 1-24
+                               F2 = 25-48
+                               COV = F1*F2
+                               PRIOR = (25-48, g, norm, -1.5, 1)"),
+           itemtype = c(rep("2PL", 24), rep("3PL", 24)), verbose = FALSE))
+check("common slope per node (equality constraint)",
+      mirt(pseudo, mirt.model("F1 = 1-24
+                               F2 = 25-48
+                               COV = F1*F2
+                               CONSTRAIN = (1-24, a1), (25-48, a2)"),
+           itemtype = "2PL", verbose = FALSE))
+mixed <- cbind(N1[, 1:12], Y[, 13:24])      # 12 binary + 12 three-category items
+check("mixed item types on one dimension (2PL + GPCM)",
+      mirt(as.data.frame(mixed), 1, itemtype = c(rep("2PL", 12), rep("gpcm", 12)), verbose = FALSE))
+check("graded response node",
+      mirt(as.data.frame(Y), 1, itemtype = "graded", verbose = FALSE))
+
+## ---- 2. latent structure -----------------------------------------------------
+check("three-dimensional tree by quadrature (EM)",
+      mirt(cbind(pseudo, pseudo[, 1:24]), mirt.model("F1 = 1-24
+                                                     F2 = 25-48
+                                                     F3 = 49-72
+                                                     COV = F1*F2*F3"),
+           itemtype = "2PL", verbose = FALSE, technical = list(NCYCLES = 200)),
+      note = "duplicated items; only tests that 3 dimensions run")
+check("bifactor tree (general + node factors)",
+      bfactor(pseudo, c(rep(1, 24), rep(2, 24)), verbose = FALSE))
+
+## ---- 3. item parameters -------------------------------------------------------
+check("locations equal across nodes (equality constraint on intercepts)",
+      mirt(pseudo, mirt.model(paste0("F1 = 1-24\nF2 = 25-48\nCOV = F1*F2\nCONSTRAIN = ",
+                                     paste(sprintf("(%d, %d, d)", 1:24, 25:48), collapse = ", "))),
+           itemtype = "2PL", verbose = FALSE))
+long <- data.frame(id = rep(seq_along(persons), 48), item = rep(seq_len(48), each = length(persons)))
+check("random item effects (mixedmirt, random = ~ 1 | items)",
+      mixedmirt(pseudo, covdata = data.frame(id = factor(seq_along(persons))), model = tree_model,
+                fixed = ~ 0 + items, random = ~ 1 | id, itemtype = "Rasch", verbose = FALSE),
+      note = "random person effect syntax; item random effects need itemdesign + random on an item factor")
+check("random item effects across items (mixedmirt with item-level random term)",
+      mixedmirt(pseudo, model = tree_model, itemtype = "Rasch", verbose = FALSE,
+                itemdesign = data.frame(itemf = factor(1:48)), fixed = ~ 1,
+                random = ~ 1 | itemf),
+      note = "if this errors, random item effects are not available in this form")
+
+## ---- 4. covariates ---------------------------------------------------------------
+check("person covariates on traits (latent regression, Rasch)",
+      mirt(pseudo, tree_model, itemtype = "Rasch", covdata = covdata, formula = ~ anger + male,
+           verbose = FALSE))
+check("person covariates on traits (latent regression, 2PL)",
+      mirt(pseudo, tree_model, itemtype = "2PL", covdata = covdata, formula = ~ anger + male,
+           verbose = FALSE))
+idesign <- rbind(idesign1, idesign1); idesign$node2 <- rep(0:1, each = 24)
+check("item covariates (item.formula, LLTM, Rasch)",
+      mirt(pseudo, tree_model, itemtype = "Rasch", itemdesign = idesign,
+           item.formula = ~ 0 + node2 + scold + shout + self + do, verbose = FALSE),
+      note = "fixed-effects LLTM: item locations replaced by the design, no item residual")
+check("item covariates (mixedmirt fixed = ~ 0 + items + design)",
+      mixedmirt(pseudo, covdata = covdata, model = tree_model, itemtype = "Rasch",
+                itemdesign = idesign, fixed = ~ 0 + items + scold, verbose = FALSE))
+check("person-by-item covariate (anger x shout interaction, mixedmirt)",
+      mixedmirt(pseudo, covdata = covdata, model = tree_model, itemtype = "Rasch",
+                itemdesign = idesign, fixed = ~ 0 + items + anger:shout, verbose = FALSE))
+cov_na <- covdata; cov_na$anger[c(3, 17, 40)] <- NA
+check("missing person covariate values (latent regression)",
+      mirt(pseudo, tree_model, itemtype = "Rasch", covdata = cov_na, formula = ~ anger + male,
+           verbose = FALSE),
+      note = "error = not handled; ok = check whether rows were dropped or imputed")
+
+## ---- 5. estimation and output -----------------------------------------------------
+fit <- mirt(pseudo, tree_model, itemtype = "2PL", SE = TRUE, verbose = FALSE)
+check("standard errors of the trait correlation", coef(fit, printSE = TRUE)$GroupPars)
+check("MHRM estimation (stochastic, for many dimensions)",
+      mirt(pseudo, tree_model, itemtype = "2PL", method = "MHRM", verbose = FALSE))
+check("plausible values for the traits", fscores(fit, plausible.draws = 5))
+
+## ---- save ---------------------------------------------------------------------------
+print(results, right = FALSE)
+write.csv(results, "results/capabilities_mirt.csv", row.names = FALSE)
+writeLines(capture.output(sessionInfo()), "results/capabilities_mirt_sessionInfo.txt")
