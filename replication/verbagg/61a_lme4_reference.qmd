@@ -1,0 +1,151 @@
+---
+title: "61a — lme4 reference fits for bucket 1"
+subtitle: "Verbal aggression linear tree, paper Section 6.1 (companion of notebook 61)"
+format:
+  html:
+    toc: true
+    code-fold: false
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+---
+
+Run this document **before** the comparison steps of `61_verbagg_workflow.ipynb`. Open it in RStudio and run the chunks one by one (Ctrl+Shift+Enter runs the current chunk), or render the whole document (the Render button, or `quarto render 61a_lme4_reference.qmd`). It runs in its own folder, so no `setwd()` is needed.
+
+## The four models
+
+The four irtree models of bucket 1 and their lme4 counterparts. glmer uses the Laplace approximation (adaptive quadrature is not available with two correlated random effects per person).
+
+| irtree | Link | Covariates | lme4 model |
+|---|---|---|---|
+| A1 | logit | none | items fixed by node: `value ~ 0 + item:node + (0 + node | id)` |
+| B1 | probit | none | the same, `binomial(link = "probit")` |
+| A2 | logit | yes | node intercepts and covariates, items random by node: `value ~ 0 + node + node:(scold + shout + self + do) + node:(anger + male) + (0 + node | id) + (0 + d1 + d2 || item)` |
+| B2 | probit | yes | the same, probit link |
+
+The covariate coding is the notebook's: `anger` centered and scaled over persons; `male` and the item indicators (`scold`, `shout`, `self`, `do`) centered.
+
+**Output** (in `results/`): `lme4_A1.csv`, `lme4_B1.csv`, `lme4_A2.csv`, `lme4_B2.csv`, `lme4_runtime_61.csv`, `lme4_sessionInfo_61.txt`.
+
+**Reference runtime** (one core): A1 and B1 about 1.5 to 5 minutes each, A2 and B2 about 0.5 minutes each.
+
+## Step 0: Packages and a timer
+
+```{r setup}
+if (!requireNamespace("lme4", quietly = TRUE)) install.packages("lme4")
+suppressPackageStartupMessages(library(lme4))
+dir.create("results", showWarnings = FALSE)
+
+runtime <- data.frame(model = character(), seconds = numeric())
+timed <- function(label, expr) {
+  t0 <- proc.time()[["elapsed"]]
+  val <- force(expr)
+  dt <- proc.time()[["elapsed"]] - t0
+  runtime[nrow(runtime) + 1, ] <<- list(label, dt)
+  cat(sprintf("[%s] %.1f s\n", label, dt))
+  invisible(val)
+}
+```
+
+## Step 1: Read the data and dendrify
+
+`verbagg_long.csv` is lme4's `VerbAgg` (316 persons, 24 items), one row per person and item. Dendrifying writes one row per person, item and node that the response reaches: node 1 (no against perhaps or yes) for every response, node 2 (perhaps against yes) only for perhaps and yes.
+
+```{r data}
+va <- read.csv("verbagg_long.csv", stringsAsFactors = TRUE)
+y  <- match(va$resp, c("no", "perhaps", "yes")) - 1L
+n1 <- data.frame(va, node = "n1", value = as.integer(y >= 1))
+n2 <- data.frame(va, node = "n2", value = as.integer(y == 2))[y >= 1, ]
+long <- rbind(n1, n2)
+long$node <- factor(long$node)
+long$d1 <- as.numeric(long$node == "n1")   # numeric node indicators: "||" only
+long$d2 <- as.numeric(long$node == "n2")   # decorrelates numeric terms
+table(long$node, long$value)
+```
+
+## Step 2: Covariates
+
+The same coding as the notebook, so the coefficients are comparable.
+
+```{r covariates}
+items <- unique(va[, c("item", "btype", "situ", "mode")])
+icov <- data.frame(item  = items$item,
+                   scold = as.numeric(items$btype == "scold"),
+                   shout = as.numeric(items$btype == "shout"),
+                   self  = as.numeric(items$situ == "self"),
+                   do    = as.numeric(items$mode == "do"))
+for (v in c("scold", "shout", "self", "do")) icov[[v]] <- icov[[v]] - mean(icov[[v]])
+
+pers <- unique(va[, c("id", "Anger", "Gender")])
+pcov <- data.frame(id    = pers$id,
+                   anger = (pers$Anger - mean(pers$Anger)) / sd(pers$Anger),
+                   male  = as.numeric(pers$Gender == "M") - mean(pers$Gender == "M"))
+long <- merge(merge(long, icov, by = "item"), pcov, by = "id")
+```
+
+## Step 3: Helpers
+
+`tidy` turns a glmer fit into one table: fixed effects with standard errors, then variances and correlations (glmer gives no standard errors for those).
+
+```{r helpers}
+tidy <- function(fit, model) {
+  fe <- summary(fit)$coefficients
+  out <- data.frame(model = model, term = rownames(fe), estimate = fe[, 1],
+                    se = fe[, 2], row.names = NULL)
+  vc <- as.data.frame(VarCorr(fit))
+  vc$term <- ifelse(is.na(vc$var2), paste0("var_", vc$grp, "_", vc$var1),
+                    paste0("cor_", vc$grp, "_", vc$var1, "_", vc$var2))
+  vc$estimate <- ifelse(is.na(vc$var2), vc$vcov, vc$sdcor)
+  rbind(out, data.frame(model = model, term = vc$term, estimate = vc$estimate, se = NA_real_))
+}
+ctrl <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+f_fixed <- value ~ 0 + item:node + (0 + node | id)
+f_cov   <- value ~ 0 + node + node:(scold + shout + self + do) + node:(anger + male) +
+             (0 + node | id) + (0 + d1 + d2 || item)
+```
+
+## Step 4: A1 and B1 (items fixed, no covariates)
+
+De Boeck and Partchev's model: 48 item-by-node fixed effects and two correlated person effects. glmer's coefficient of `item:node` is −b.
+
+```{r fit-A1}
+fit_A1 <- timed("lme4 A1 (logit, items fixed)",
+                glmer(f_fixed, data = long, family = binomial, control = ctrl))
+write.csv(tidy(fit_A1, "A1"), "results/lme4_A1.csv", row.names = FALSE)
+VarCorr(fit_A1)
+```
+
+```{r fit-B1}
+fit_B1 <- timed("lme4 B1 (probit, items fixed)",
+                glmer(f_fixed, data = long, family = binomial(link = "probit"), control = ctrl))
+write.csv(tidy(fit_B1, "B1"), "results/lme4_B1.csv", row.names = FALSE)
+VarCorr(fit_B1)
+```
+
+## Step 5: A2 and B2 (random items, node intercepts, covariates)
+
+Items are random within each node (independent across nodes), with a fixed intercept per node, the item covariates, and the person covariates.
+
+```{r fit-A2}
+fit_A2 <- timed("lme4 A2 (logit, covariates)",
+                glmer(f_cov, data = long, family = binomial, control = ctrl))
+write.csv(tidy(fit_A2, "A2"), "results/lme4_A2.csv", row.names = FALSE)
+summary(fit_A2)$coefficients
+VarCorr(fit_A2)
+```
+
+```{r fit-B2}
+fit_B2 <- timed("lme4 B2 (probit, covariates)",
+                glmer(f_cov, data = long, family = binomial(link = "probit"), control = ctrl))
+write.csv(tidy(fit_B2, "B2"), "results/lme4_B2.csv", row.names = FALSE)
+VarCorr(fit_B2)
+```
+
+## Step 6: Runtime and session
+
+```{r runtime}
+runtime
+write.csv(runtime, "results/lme4_runtime_61.csv", row.names = FALSE)
+writeLines(capture.output(sessionInfo()), "results/lme4_sessionInfo_61.txt")
+```

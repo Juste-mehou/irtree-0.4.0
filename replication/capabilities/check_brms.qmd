@@ -1,0 +1,218 @@
+---
+title: "What can brms do for IRTree models?"
+subtitle: "Capability and speed check on the verbal aggression linear tree"
+format:
+  html:
+    toc: true
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+---
+
+brms (Bürkner, 2021, *Journal of Statistical Software* 100(5)) is the main Bayesian alternative to irtree: it fits IRTrees through Stan, with non-linear formulas for discriminations. This document answers two questions.
+
+* **Part 1, capabilities.** Each feature is tried with a short run (1 chain, 300 iterations): does it compile and sample?
+* **Part 2, speed.** Full timed runs of the models irtree is compared with in bucket 1 (the Rasch tree with items fixed, the Rasch tree with random items and covariates in logit and probit, and a 2PL tree). Its `results/brms_speed.csv` is read by notebook 61's speed table.
+
+Run the chunks one by one in RStudio, or render the document (`quarto render check_brms.qmd`). It runs in its own folder. It needs a working Stan toolchain: rstan, or cmdstanr with CmdStan installed.
+
+**Reference runtime.** Part 1 took about 40 minutes in a 2-core cloud workspace; each short test is mostly compilation (2 to 5 minutes). Part 2 needs several GB of memory to compile (the cloud workspace ran out); expect 20 to 60 minutes on a laptop.
+
+**Output:** `results/capabilities_brms.csv`, `results/brms_speed.csv`, `results/brms_estimates.csv`, `results/capabilities_brms_sessionInfo.txt`.
+
+## Settings
+
+```{r settings}
+RUN_PART2   <- TRUE     # full timed runs (set FALSE for the capability checks only)
+FULL_ITER   <- 2000     # per chain, half warm-up (the brms default)
+FULL_CHAINS <- 4
+for (p in c("brms", "posterior", "BH")) if (!requireNamespace(p, quietly = TRUE)) install.packages(p)
+suppressPackageStartupMessages({ library(brms); library(posterior) })
+BACKEND <- if (requireNamespace("cmdstanr", quietly = TRUE) &&
+               !is.null(tryCatch(cmdstanr::cmdstan_version(), error = function(e) NULL))) "cmdstanr" else "rstan"
+options(mc.cores = FULL_CHAINS)
+dir.create("results", showWarnings = FALSE)
+cat("brms", as.character(packageVersion("brms")), "| backend:", BACKEND, "\n")
+```
+
+## Data: the dendrified long format
+
+One row per person, item and node reached, as in `61a_lme4_reference.qmd`, with the same covariate coding (anger standardized over persons; gender and the item indicators centered).
+
+```{r data}
+va <- read.csv("../verbagg/verbagg_long.csv", stringsAsFactors = TRUE)
+y  <- match(va$resp, c("no", "perhaps", "yes")) - 1L
+n1 <- data.frame(va, y3 = y, node = "n1", value = as.integer(y >= 1))
+n2 <- data.frame(va, y3 = y, node = "n2", value = as.integer(y == 2))[y >= 1, ]
+long <- rbind(n1, n2)
+long$node <- factor(long$node)
+long$item_node <- interaction(long$item, long$node, drop = TRUE)
+
+pa <- unique(va[, c("id", "Anger")])
+long$anger <- (long$Anger - mean(pa$Anger)) / sd(pa$Anger)          # standardized over persons
+long$male  <- as.numeric(long$Gender == "M") - mean(unique(va[, c("id", "Gender")])$Gender == "M")
+for (v in c("scold", "shout")) long[[v]] <- as.numeric(long$btype == v)
+long$self <- as.numeric(long$situ == "self"); long$do <- as.numeric(long$mode == "do")
+it <- unique(long[, c("item", "scold", "shout", "self", "do")])
+for (v in c("scold", "shout", "self", "do")) long[[v]] <- long[[v]] - mean(it[[v]])
+```
+
+## Test harness
+
+`check()` evaluates one expression and records whether it ran and how long it took; `quick()` is a short brms run (1 chain, 300 iterations).
+
+```{r harness}
+results <- data.frame(test = character(), status = character(), seconds = numeric(),
+                      note = character(), stringsAsFactors = FALSE)
+check <- function(test, expr, note = "") {
+  t0 <- proc.time()[["elapsed"]]
+  status <- tryCatch({ force(expr); "ok" },
+                     error = function(e) paste("error:", conditionMessage(e)))
+  dt <- proc.time()[["elapsed"]] - t0
+  results[nrow(results) + 1, ] <<- list(test, substr(status, 1, 300), round(dt, 1), note)
+  cat(sprintf("[%s] %.1f s: %s\n", test, dt, substr(status, 1, 160)))
+  invisible(status)
+}
+quick <- function(formula, data = long, family = bernoulli(), prior = NULL, ...) {
+  args <- list(formula, data = data, prior = prior, chains = 1, iter = 300, warmup = 150,
+               refresh = 0, backend = BACKEND, silent = 2, ...)
+  if (!is.null(family)) args$family <- family        # NULL: families set inside bf()
+  do.call(brm, args)
+}
+```
+
+## Formulas
+
+The Rasch tree in three versions (items fixed; items random by node; random with covariates), then the 2PL and 3PL trees as non-linear formulas (Bürkner, 2021). In the 2PL, the person standard deviations are fixed at 1 to identify the scale, as irtree does on dimensions whose nodes all have discriminations.
+
+```{r formulas}
+f_rasch_fixed <- bf(value ~ 0 + item_node + (0 + node | id))
+f_rasch_rand  <- bf(value ~ 0 + node + (0 + node | id) + (0 + node | item))
+f_rasch_cov   <- bf(value ~ 0 + node + node:(scold + shout + self + do) + node:(anger + male) +
+                      (0 + node | id) + (0 + node | item))
+f_2pl <- bf(value ~ exp(logalpha) * eta,
+            eta ~ 0 + node + (0 + node | i | item) + (0 + node | id),
+            logalpha ~ 0 + node + (0 + node | i | item), nl = TRUE)
+p_2pl <- prior(constant(1), class = "sd", group = "id", nlpar = "eta") +
+         prior(normal(0, 1), nlpar = "logalpha") + prior(normal(0, 3), nlpar = "eta")
+f_3pl <- bf(value ~ gamma + (1 - gamma) * inv_logit(exp(logalpha) * eta),
+            eta ~ 0 + node + (0 + node | i | item) + (0 + node | id),
+            logalpha ~ 0 + node + (0 + node | i | item),
+            nlf(gamma ~ inv_logit(logitgamma)), logitgamma ~ 1, nl = TRUE)
+p_3pl <- p_2pl + prior(normal(-1.5, 0.5), nlpar = "logitgamma")
+```
+
+## Part 1: Capabilities
+
+### Rasch trees
+
+```{r part1-rasch}
+check("Rasch tree, logit, items fixed (De Boeck & Partchev)", quick(f_rasch_fixed))
+check("Rasch tree, logit, items random per node", quick(f_rasch_rand))
+check("Rasch tree, probit", quick(f_rasch_rand, family = bernoulli(link = "probit")))
+check("Rasch tree with item and person covariates", quick(f_rasch_cov))
+```
+
+### Discriminations and lower asymptotes
+
+```{r part1-2pl}
+check("2PL tree (non-linear formula), slopes per item and node", quick(f_2pl, prior = p_2pl))
+check("2PL tree, probit", quick(f_2pl, prior = p_2pl, family = bernoulli(link = "probit")))
+check("2PL tree with person covariates on eta",
+      quick(bf(value ~ exp(logalpha) * eta,
+               eta ~ 0 + node + node:(anger + male) + (0 + node | i | item) + (0 + node | id),
+               logalpha ~ 0 + node + (0 + node | i | item), nl = TRUE), prior = p_2pl))
+check("3PL node (lower asymptote via inv_logit)",
+      quick(f_3pl, prior = p_3pl, family = bernoulli(link = "identity")))
+```
+
+### Polytomous and mixed nodes
+
+The graded response and adjacent-category (partial credit) families on a one-node tree of the three categories. A mixed node (binary items and three-category items on one trait) is not attempted: it needs a custom family, or a multivariate model with one family per item type, which is model code the user writes.
+
+```{r part1-poly}
+one <- unique(long[, c("id", "item", "y3")])
+one$y3 <- one$y3 + 1L                                   # cumulative / acat need categories 1, 2, 3
+check("graded response, one node (cumulative logit)",
+      quick(bf(y3 ~ 1 + (1 | item) + (1 | id)), data = one, family = cumulative("logit")))
+check("partial credit / adjacent category, one node",
+      quick(bf(y3 ~ 1 + (1 | item) + (1 | id)), data = one, family = acat("logit")))
+check("mixed node (binary items and three-category items in one model)",
+      stop("not attempted: needs a custom family, or a multivariate model with one family per item type"),
+      note = "not tested; a custom family is possible in brms but is model code the user writes")
+```
+
+### Missing covariate values
+
+`mi()` imputes a missing predictor inside the model. In the long format it imputes each response row separately, so the same person's anger is not held equal across that person's rows; irtree draws one value per person.
+
+```{r part1-missing}
+long_na <- long; long_na$anger[long_na$id %in% c(3, 17, 40)] <- NA
+check("missing person covariate (mi() imputation)",
+      quick(bf(value ~ 0 + node + node:mi(anger) + (0 + node | id) + (0 + node | item),
+               family = bernoulli()) +
+              bf(anger | mi() ~ 1, family = gaussian()) + set_rescor(FALSE),
+            data = long_na, family = NULL),
+      note = "mi() imputes each ROW separately: a person's anger is not held equal across rows")
+```
+
+### Part 1 results
+
+```{r part1-results}
+knitr::kable(results)
+write.csv(results, "results/capabilities_brms.csv", row.names = FALSE)
+```
+
+## Part 2: Timed full runs
+
+`timed_fit()` records the total time (compilation and sampling), the sampling time of the slowest chain (chains run in parallel), and the smallest bulk effective sample size among the structural parameters (standard deviations, correlations, fixed effects), so effective samples per second can be compared with irtree.
+
+```{r part2-helper}
+timed_fit <- function(label, formula, prior = NULL, family = bernoulli()) {
+  t0 <- proc.time()[["elapsed"]]
+  fit <- brm(formula, data = long, family = family, prior = prior, chains = FULL_CHAINS,
+             iter = FULL_ITER, cores = FULL_CHAINS, refresh = 0, backend = BACKEND, silent = 2)
+  total <- proc.time()[["elapsed"]] - t0
+  el <- tryCatch(rstan::get_elapsed_time(fit$fit), error = function(e) NULL)
+  sampling <- if (is.null(el)) NA else max(rowSums(el))
+  dr <- summarise_draws(as_draws_df(fit), "ess_bulk")
+  keep <- grepl("^(sd_|cor_|b_)", dr$variable)
+  list(fit = fit, row = data.frame(model = label, chains = FULL_CHAINS, iter = FULL_ITER,
+                                   total_seconds = round(total, 1),
+                                   sampling_seconds = round(sampling, 1),
+                                   min_ess_bulk_structural = round(min(dr$ess_bulk[keep], na.rm = TRUE)),
+                                   backend = BACKEND))
+}
+```
+
+```{r part2-runs}
+if (RUN_PART2) {
+runs <- list(
+  timed_fit("brms Rasch tree, items fixed (A1)", f_rasch_fixed),
+  timed_fit("brms Rasch tree, random items + covariates (A2)", f_rasch_cov),
+  timed_fit("brms Rasch tree, probit, random items + covariates (B2)", f_rasch_cov,
+            family = bernoulli(link = "probit")),
+  timed_fit("brms 2PL tree", f_2pl, prior = p_2pl))
+speed <- do.call(rbind, lapply(runs, `[[`, "row"))
+print(knitr::kable(speed))
+write.csv(speed, "results/brms_speed.csv", row.names = FALSE)
+}
+```
+
+```{r part2-estimates}
+if (RUN_PART2) {
+est <- do.call(rbind, lapply(runs, function(r) {
+  s <- summarise_draws(as_draws_df(r$fit), "mean", "sd")
+  s <- s[grepl("^(sd_|cor_|b_)", s$variable), ]
+  data.frame(model = r$row$model, s)
+}))
+write.csv(est, "results/brms_estimates.csv", row.names = FALSE)
+}
+```
+
+## Session
+
+```{r session}
+writeLines(capture.output(sessionInfo()), "results/capabilities_brms_sessionInfo.txt")
+```
