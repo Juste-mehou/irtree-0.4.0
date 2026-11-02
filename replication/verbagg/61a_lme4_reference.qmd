@@ -18,7 +18,7 @@ Run this document **before** the comparison steps of `61_verbagg_workflow.ipynb`
 The four irtree models of bucket 1 and their lme4 counterparts. glmer uses the Laplace approximation (adaptive quadrature is not available with two correlated random effects per person).
 
 | irtree | Link | Covariates | lme4 model |
-|---|---|---|---|
+|----|----|----|----|
 | A1 | logit | none | items fixed by node: `value ~ 0 + item:node + (0 + node | id)` |
 | B1 | probit | none | the same, `binomial(link = "probit")` |
 | A2 | logit | yes | node intercepts and covariates, items random by node: `value ~ 0 + node + node:(scold + shout + self + do) + node:(anger + male) + (0 + node | id) + (0 + d1 + d2 || item)` |
