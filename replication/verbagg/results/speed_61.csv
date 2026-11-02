@@ -1,0 +1,9 @@
+model,software,chains,iterations,draws,seconds,min_ess_structural,ess_per_second
+A1,irtree,1.0,4000.0,3600.0,19.5,209.0,10.7
+B1,irtree,1.0,4000.0,3600.0,11.2,336.0,29.9
+A2,irtree,1.0,4000.0,3600.0,39.2,256.0,6.5
+B2,irtree,1.0,4000.0,3600.0,21.8,245.0,11.2
+"lme4 B2 (probit, covariates)",lme4,,,,14.5,,
+"lme4 B1 (probit, items fixed)",lme4,,,,122.3,,
+"lme4 A2 (logit, covariates)",lme4,,,,14.0,,
+"lme4 A1 (logit, items fixed)",lme4,,,,81.0,,

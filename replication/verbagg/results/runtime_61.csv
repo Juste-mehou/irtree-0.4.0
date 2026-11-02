@@ -1,0 +1,9 @@
+step,seconds
+A1,19.5
+B1,11.2
+A2,39.2
+B2,21.8
+B2 with discriminations (2PL),20.9
+LOO B2 and 2PL,4.0
+HTML report,3.7
+TOTAL,120.3
