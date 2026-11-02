@@ -46,3 +46,22 @@ def test_tables_and_draws():
     long = fit.draws(params=["rho_1_2", "a_2_1"], long=True)
     assert len(long) == arr.shape[0] * arr.shape[1] * 2
     np.testing.assert_allclose(long.loc[long.param == "a_2_1", "value"], arr[:, :, 1].ravel())
+
+
+def test_report_aligns_chains_with_different_lengths():
+    """Evidence-mode warm-up can leave chains with different numbers of draws."""
+    import copy
+    warnings.filterwarnings("ignore")
+    rng = np.random.default_rng(1)
+    spec = irtree.disengagement_tree(binary=True)
+    data = irtree.expand_data(rng.integers(0, 3, size=(60, 5)), spec, categories_start=0)
+    nodes = [irtree.ProbitRaschNode(), irtree.ProbitRaschNode()]
+    with contextlib.redirect_stdout(io.StringIO()):
+        fit = irtree.irtree_fit(data, spec, nodes, n_iter=300, n_warmup=100, warmup_mode="fixed",
+                                n_chains=2, seed=1, progress=False)
+    short = copy.copy(fit.results[1])
+    short.chain = short.chain[25:]
+    short.log_lik_trace = short.log_lik_trace[25:]
+    rep = irtree.convergence_report([fit.results[0], short])
+    assert rep.n_samples == short.chain.shape[0]
+    assert len(rep.params) == len(rep.param_names)
