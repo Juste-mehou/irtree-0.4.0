@@ -1233,14 +1233,15 @@ def convergence_report(
     if len(results) == 0:
         raise ValueError("results must contain at least one MCMCResult.")
 
-    # Stack chains: each result.chain is [S, d]; stack → [S, C, d]
-    chains_list = [r.chain.astype(np.float64) for r in results]
-    S_vals = [c.shape[0] for c in chains_list]
-    if len(set(S_vals)) != 1:
-        raise ValueError(
-            f"All chains must have the same number of stored samples; "
-            f"got {S_vals}."
-        )
+    # Stack chains: each result.chain is [S, d]; stack → [S, C, d].  In
+    # evidence-mode warm-up each chain freezes when its own adaptation has
+    # settled, so chains can keep different numbers of draws.  Align them on
+    # their last common number of draws, as posterior_summary and
+    # IRTreeFit.draws_array do (the earliest retained draws are the ones
+    # dropped, so every chain contributes its most-settled draws).
+    S_vals = [r.chain.shape[0] for r in results]
+    S_min = min(S_vals)
+    chains_list = [r.chain[-S_min:].astype(np.float64) for r in results]
 
     S  = chains_list[0].shape[0]
     C  = len(results)

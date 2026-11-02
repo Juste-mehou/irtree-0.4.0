@@ -61,6 +61,7 @@ import os
 import sys
 import textwrap
 import time
+import warnings
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -897,8 +898,9 @@ def irtree_fit(
         rep = convergence_report(results)
         fit._diagnostic_report = rep   # cache it
         console_summary(rep)
-    except Exception:
-        pass   # never let the summary crash the fit
+    except Exception as exc:   # never let the summary crash the fit, but say so
+        warnings.warn(f"The convergence summary could not be computed ({exc}); "
+                      f"fit.diagnostics() will raise the same error.", UserWarning, stacklevel=2)
 
     return fit
 
